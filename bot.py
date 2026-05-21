@@ -25,7 +25,7 @@ PRICES = {
     "5gb": 4.0
 }
 
-# متن اطلاعیه وضعیت سرورها (هر وقت خواستی متنش را همینجا عوض کن)
+# متن اطلاعیه وضعیت سرورها
 ANNOUNCEMENT_TEXT = "📢 **اطلاعیه مهم:**\nکاربران گرامی، به دلیل آپدیت و بهینه‌سازی سرورها جهت افزایش سرعت، ممکن است در برخی ساعات افت سرعت یا قطعی موقت داشته باشیم. از شکیبایی شما سپاسگزاریم. ❤️"
 
 # توکن اختصاصی Plisio شما
@@ -45,11 +45,11 @@ def create_plisio_invoice(amount, plan_name):
     url = "https://plisio.net/api/v1/invoices/new"
     params = {
         "api_key": PLISIO_API_KEY,
-        "currency": "TRX",
+        "currency": "USDT_BSC",       # تغییر به تتر شبکه بایننس برای حل مشکل قیمت‌های مختلف 🚀
         "order_number": os.urandom(4).hex(),
         "order_name": f"خرید کانفیگ {plan_name}",
         "amount": str(amount),
-        "source_currency": "USD",
+        "source_currency": "USD",     # تبدیل اتوماتیک دلار به تتر توسط خود Plisio
         "callback_url": "https://t.me/Vpn_mirza_bot"
     }
     try:
@@ -122,8 +122,7 @@ def handle_messages(message):
         markup.add(btn3, btn5)
         bot.send_message(message.chat.id, "⚙️ به پنل مدیریت خوش آمدید. مایلید به کدام بخش کانفیگ اضافه کنید؟", reply_markup=markup)
 
-    elif user_steps.get(user_id) in ['adding_1gb', 'adding_3gb', 'adding_1gb_lines', 'adding_3gb_lines', 'adding_5gb'] and user_id == ADMIN_ID:
-        # تشخیص اینکه مال کدام حجم است
+    elif user_steps.get(user_id) in ['adding_1gb', 'adding_3gb', 'adding_5gb'] and user_id == ADMIN_ID:
         step = user_steps[user_id]
         plan = "1gb" if "1gb" in step else ("3gb" if "3gb" in step else "5gb")
         
@@ -140,7 +139,6 @@ def handle_messages(message):
 def callback_inline(call):
     user_id = call.from_user.id
     
-    # بخش مدیریت: درخواست ورود کانفیگ
     if call.data.startswith("add_") and user_id == ADMIN_ID:
         plan = call.data.split("_")[1]
         markup = types.ForceReply(selective=False)
@@ -148,7 +146,6 @@ def callback_inline(call):
         user_steps[user_id] = f'adding_{plan}'
         bot.answer_callback_query(call.id)
 
-    # بخش خرید: ایجاد فاکتور Plisio
     elif call.data.startswith("buy_"):
         plan = call.data.split("_")[1]
         
@@ -172,12 +169,11 @@ def callback_inline(call):
             markup.add(btn_pay)
             markup.add(btn_check)
             
-            bot.send_message(call.message.chat.id, f"💵 مبلغ فاکتور: {price} دلار (بر پایه TRX)\n\nلطفاً روی دکمه زیر کلیک کنید، پرداخت را انجام دهید و سپس دکمه بررسی را بزنید:", reply_markup=markup)
+            bot.send_message(call.message.chat.id, f"💵 مبلغ فاکتور: {price} دلار\n\nلطفاً روی دکمه زیر کلیک کنید، پرداخت را انجام دهید و سپس دکمه بررسی را بزنید:", reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id, f"❌ خطا در اتصال به درگاه:\n`{invoice_result['error']}`")
         bot.answer_callback_query(call.id)
 
-    # بخش بررسی وضعیت پرداخت
     elif call.data.startswith("chk_"):
         parts = call.data.split("_")
         plan = parts[1]
