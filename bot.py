@@ -19,8 +19,8 @@ ADMIN_ID = 489450312
 SUPPORT_ID = '@number76'
 PRICE_USD = 1.0  # قیمت کانفیگ به دلار
 
-# توکن اختصاصی Plisio شما
-PLISIO_API_KEY = 'QU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy' 
+# ✅ توکن Plisio شما دقیقاً با حروف کوچک و بزرگ واقعی اصلاح شد:
+PLISIO_API_KEY = 'qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy' 
 
 bot = telebot.TeleBot(API_TOKEN)
 configs_pool = []
@@ -72,7 +72,7 @@ def send_welcome(message):
         btn_admin = types.KeyboardButton("⚙️ پنل مدیریت (افزودن کانفیگ)")
         markup.add(btn_admin)
         
-    bot.send_message(message.chat.id, "به ربات فروش اتفاوتیک کانفیگ خوش آمدید!", reply_markup=markup)
+    bot.send_message(message.chat.id, "به ربات فروش اتوماتیک کانفیگ خوش آمدید!", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message):
