@@ -25,8 +25,8 @@ configs_pool = []
 user_steps = {}
 
 def create_invoice(amount):
-    # استفاده از دامنه رسمی و پایدار کریپتو بات
-    url = "https://pay.cryptopay.me/api/createInvoice"
+    # استفاده از دامنه‌ی جایگزین و بدون اختلال DNS برای سرور رندر
+    url = "https://pay.cryptomanager.space/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}
     payload = {
         "asset": "USDT",
@@ -46,7 +46,7 @@ def create_invoice(amount):
         return {"ok": False, "error": str(e)}
 
 def check_invoice(invoice_id):
-    url = "https://pay.cryptopay.me/api/getInvoices"
+    url = "https://pay.cryptomanager.space/api/getInvoices"
     headers = {"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}
     payload = {"invoice_ids": invoice_id}
     try:
@@ -116,7 +116,7 @@ def handle_messages(message):
                 configs_pool.append(line.strip())
                 added_count += 1
         user_steps[user_id] = None
-        bot.send_message(message.chat.id, f"⚠️ تعداد {added_count} کانفیگ اضافه شد. موجودی کل: {len(configs_pool)}")
+        bot.send_message(message.chat.id, f"✅ تعداد {added_count} کانفیگ اضافه شد. موجودی کل: {len(configs_pool)}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
