@@ -45,11 +45,11 @@ def create_plisio_invoice(amount, plan_name):
     url = "https://plisio.net/api/v1/invoices/new"
     params = {
         "api_key": PLISIO_API_KEY,
-        "currency": "BNB",             # استفاده از BNB برای رد کردن لیمیت مبالغ کم و رفع ارور minimal amount
+        "currency": "USDT_BSC",         # دقیقاً مثل نمونه روی تتر بایننس ست شد
         "order_number": os.urandom(4).hex(),
         "order_name": f"خرید کانفیگ {plan_name}",
         "amount": str(amount),
-        "source_currency": "USD",      # تبدیل خودکار ارزش دلاری
+        "source_currency": "USD",
         "callback_url": "https://t.me/Vpn_mirza_bot"
     }
     try:
