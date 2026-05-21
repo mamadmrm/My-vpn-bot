@@ -59,7 +59,7 @@ def create_plisio_invoice(amount, plan_name):
             return {"ok": True, "data": res_json['data']}
         else:
             error_msg = res_json.get('data', {}).get('message', 'خطای ناشناخته')
-            return {"ok": False, "error": f"{error_msg} (Status: {response.status_code})"}
+            return {"ok": False, "error": error_msg}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -104,7 +104,6 @@ def handle_messages(message):
         btn5 = types.InlineKeyboardButton(f"۵ گیگابایت ({PRICES['5gb']} دلار)", callback_data="buy_5gb")
         markup.add(btn1)
         markup.add(btn3, btn5)
-        
         bot.send_message(message.chat.id, "📊 لطفاً حجم مورد نظر خود را انتخاب کنید:", reply_markup=markup)
 
     elif text == "📢 وضعیت سرورها و اطلاعیه":
@@ -117,15 +116,14 @@ def handle_messages(message):
         markup = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton(f"افزودن ۱ گیگ (موجودی: {len(configs_pool['1gb'])})", callback_data="add_1gb")
         btn3 = types.InlineKeyboardButton(f"افزودن ۳ گیگ (موجودی: {len(configs_pool['3gb'])})", callback_data="add_3gb")
-        btn5 = types.InlineKeyboardButton(f"افزودن ۵ گیگ (موجودی: {len(configs_pool['5gb'])})", callback_data="add_5gb")
+        btn5 = types.InlineKeyboardButton(f"افزogen ۵ گیگ (موجودی: {len(configs_pool['5gb'])})", callback_data="add_5gb")
         markup.add(btn1)
         markup.add(btn3, btn5)
         bot.send_message(message.chat.id, "⚙️ به پنل مدیریت خوش آمدید. مایلید به کدام بخش کانفیگ اضافه کنید؟", reply_markup=markup)
 
-    elif user_steps.get(user_id) in ['adding_1gb', 'adding_3gb', 'adding_5gb'] and user_id == ADMIN_ID:
+    elif user_id == ADMIN_ID and user_steps.get(user_id) in ['adding_1gb', 'adding_3gb', 'adding_5gb']:
         step = user_steps[user_id]
-        plan = "1gb" if "1gb" in step else ("3gb" if "3gb" in step else "5gb")
-        
+        plan = step.split('_')[1]
         lines = text.split('\n')
         added_count = 0
         for line in lines:
@@ -133,7 +131,7 @@ def handle_messages(message):
                 configs_pool[plan].append(line.strip())
                 added_count += 1
         user_steps[user_id] = None
-        bot.send_message(message.chat.id, f"✅ تعداد {added_count} کانفیگ به بخش {plan} اضافه شد. موجودی کل این بخش: {len(configs_pool[plan])}")
+        bot.send_message(message.chat.id, f"✅ تعداد {added_count} کانفیگ به بخش {plan} اضافه شد. موجودی کل: {len(configs_pool[plan])}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -148,16 +146,15 @@ def callback_inline(call):
 
     elif call.data.startswith("buy_"):
         plan = call.data.split("_")[1]
-        
         if len(configs_pool[plan]) == 0:
             bot.send_message(call.message.chat.id, f"❌ متاسفانه کانفیگ {plan} در حال حاضر موجود نیست.")
             bot.answer_callback_query(call.id)
             return
             
         bot.send_message(call.message.chat.id, f"⏳ در حال ساخت فاکتور پرداخت امن برای پلان {plan}...")
-        
         price = PRICES[plan]
         invoice_result = create_plisio_invoice(price, plan)
+        
         if invoice_result['ok']:
             invoice_data = invoice_result['data']
             invoice_url = invoice_data['invoice_url']
@@ -169,7 +166,7 @@ def callback_inline(call):
             markup.add(btn_pay)
             markup.add(btn_check)
             
-            bot.send_message(call.message.chat.id, f"💵 مبلغ فاکتور: {price} دلار\n\nلطفاً روی دکمه زیر کلیک کنید، پرداخت را انجام دهید و سپس دکمه بررسی را بزنید:", reply_markup=markup)
+            bot.send_message(call.message.chat.id, f"💵 مبلغ فاکتور: {price} دلار\n\nلطفاً روی دکمه زیر کلیک کنید، پرداخت را با TON یا BNB انجام دهید و سپس دکمه بررسی را بزنید:", reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id, f"❌ خطا در اتصال به درگاه:\n`{invoice_result['error']}`")
         bot.answer_callback_query(call.id)
@@ -180,4 +177,14 @@ def callback_inline(call):
         invoice_id = parts[2]
         
         status = check_plisio_status(invoice_id)
-        if status in
+        if status in ['completed', 'mismatch']:
+            if len(configs_pool[plan]) > 0:
+                selected_config = configs_pool[plan].pop(0)
+                bot.answer_callback_query(call.id, "🎉 پرداخت تایید شد!")
+                bot.edit_message_text(f"🎉 پرداخت شما موفقیت‌آمیز بود!\n\n🔑 کانفیگ {plan} شما:\n\n`{selected_config}`", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode='Markdown')
+            else:
+                bot.send_message(call.message.chat.id, "⚠️ پرداخت تایید شد اما انبار خالی شده است! به پشتیبانی پیام دهید.")
+        else:
+            bot.answer_callback_query(call.id, "❌ پرداخت هنوز تایید نشده است. کمی صبر کنید و دوباره بزنید.", show_alert=True)
+
+bot.infinity_polling()
