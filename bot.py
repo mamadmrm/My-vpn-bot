@@ -45,9 +45,20 @@ def create_plisio_invoice(amount, plan_name):
     url = "https://plisio.net/api/v1/invoices/new"
     params = {
         "api_key": PLISIO_API_KEY,
-        "currency": "TON",            # ارز پایه روی TON تنظیم شد تا محدودیت ۳ دلار برای مبالغ کم دور زده شود 💎
+        "currency": "TON",
         "order_number": os.urandom(4).hex(),
         "order_name": f"خرید کانفیگ {plan_name}",
         "amount": str(amount),
-        "source_currency": "USD",     # تبدیل اتوماتیک دلار توسط درگاه
-        "callback_url": "
+        "source_currency": "USD",
+        "callback_url": "https://t.me/Vpn_mirza_bot"
+    }
+    try:
+        response = requests.get(url, params=params, timeout=12)
+        res_json = response.json()
+        if response.status_code == 200 and res_json.get('status') == 'success':
+            return {"ok": True, "data": res_json['data']}
+        else:
+            error_msg = res_json.get('data', {}).get('message', 'خطای ناشناخته')
+            return {"ok": False, "error": f"{error_msg} (Status: {response.status_code})"}
+    except Exception as e:
+        return {"ok": False, "error": str(e
