@@ -13,7 +13,7 @@ def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 80)))
 Thread(target=run).start()
 
 # ----------------------------------------------------
-# اطلاعات اختصاصی و دقیق شما
+# اطلاعات اختصاصی شما
 API_TOKEN = '8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI'
 ADMIN_ID = 489450312  
 SUPPORT_ID = '@number76'
@@ -25,14 +25,14 @@ configs_pool = []
 user_steps = {}
 
 def create_invoice(amount):
-    url = "https://pay.cryptobase.space/api/createInvoice"
+    # استفاده از دامنه رسمی و پایدار کریپتو بات
+    url = "https://pay.cryptopay.me/api/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}
     payload = {
         "asset": "USDT",
         "amount": str(amount),
         "description": "خرید کانفیگ اختصاصی",
         "paid_btn_name": "callback",
-        # 🔴 آیدی ربات شما دقیقاً ست شد تا درگاه خطا ندهد
         "paid_btn_url": "https://t.me/Vpn_mirza_bot" 
     }
     try:
@@ -46,7 +46,7 @@ def create_invoice(amount):
         return {"ok": False, "error": str(e)}
 
 def check_invoice(invoice_id):
-    url = "https://pay.cryptobase.space/api/getInvoices"
+    url = "https://pay.cryptopay.me/api/getInvoices"
     headers = {"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}
     payload = {"invoice_ids": invoice_id}
     try:
@@ -62,7 +62,6 @@ def send_welcome(message):
     user_id = message.from_user.id
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
-    # منوی اصلی شما با دکمه قبلی و مورد نظرتان
     btn_buy = types.KeyboardButton("🔑 خرید کانفیگ")
     btn_support = types.KeyboardButton("☎️ پشتیبانی")
     markup.add(btn_buy, btn_support)
@@ -79,7 +78,6 @@ def handle_messages(message):
     text = message.text
 
     if text == "🔑 خرید کانفیگ":
-        # بررسی موجودی انبار
         if len(configs_pool) == 0:
             bot.send_message(message.chat.id, "❌ متاسفانه در حال حاضر کانفیگ موجودی نداریم. لطفا به پشتیبانی پیام دهید.")
             return
@@ -100,7 +98,6 @@ def handle_messages(message):
             
             bot.send_message(message.chat.id, f"💵 مبلغ فاکتور: {PRICE_USD} USDT (تتر)\n\nلطفاً روی دکمه زیر کلیک کنید و در ربات رسمی کریپتو واریز را انجام دهید. سپس دکمه بررسی وضعیت را بزنید:", reply_markup=markup)
         else:
-            # نمایش علت دقیق خطا برای شما
             bot.send_message(message.chat.id, f"❌ خطای سیستم درگاه:\n`{invoice_result['error']}`\n\nلطفاً این متن خطا را بررسی کنید.")
 
     elif text == "☎️ پشتیبانی":
@@ -119,7 +116,7 @@ def handle_messages(message):
                 configs_pool.append(line.strip())
                 added_count += 1
         user_steps[user_id] = None
-        bot.send_message(message.chat.id, f"✅ تعداد {added_count} کانفیگ اضافه شد. موجودی کل: {len(configs_pool)}")
+        bot.send_message(message.chat.id, f"⚠️ تعداد {added_count} کانفیگ اضافه شد. موجودی کل: {len(configs_pool)}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
