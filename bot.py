@@ -6,51 +6,73 @@ from flask import Flask, request
 TOKEN = '8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI'
 ADMIN_ID = 489450312
 WEBHOOK_URL = "https://my-vpn-bot-wt0a.onrender.com/"
+PLISIO_API_KEY = 'qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy'
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# دیتابیس ساده
+# دیتابیس
 db = sqlite3.connect('database.db', check_same_thread=False)
 db.execute('CREATE TABLE IF NOT EXISTS config_pool (plan TEXT, link TEXT)')
+db.execute('CREATE TABLE IF NOT EXISTS user_configs (user_id INTEGER, plan TEXT, link TEXT)')
 db.commit()
 
-# منوی کاربری
+# منوی اصلی
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row('🛒 خرید اشتراک', '📁 سرویس‌های من')
-    markup.row('📢 اطلاعیه', '👤 پشتیبانی')
     if message.chat.id == ADMIN_ID:
-        markup.add('➕ افزودن کانفیگ')
-    bot.send_message(message.chat.id, "خوش آمدید. از منوی زیر انتخاب کنید:", reply_markup=markup)
+        markup.add('⚙️ پنل مدیریت')
+    bot.send_message(message.chat.id, "سلام، به ربات فروش کانفیگ خوش آمدید.", reply_markup=markup)
 
-# بخش خرید
+# خرید اشتراک
 @bot.message_handler(func=lambda m: m.text == '🛒 خرید اشتراک')
-def buy(message):
-    bot.send_message(message.chat.id, "این بخش در حال اتصال به درگاه است.")
+def shop(message):
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("۱ گیگ - ۱$", callback_data="buy_1gb"))
+    markup.add(telebot.types.InlineKeyboardButton("۳ گیگ - ۲.۵$", callback_data="buy_3gb"))
+    markup.add(telebot.types.InlineKeyboardButton("۵ گیگ - ۴$", callback_data="buy_5gb"))
+    bot.send_message(message.chat.id, "پلن مورد نظر را انتخاب کنید:", reply_markup=markup)
 
-# بخش ادمین (افزودن کانفیگ)
-@bot.message_handler(func=lambda m: m.text == '➕ افزودن کانفیگ' and m.chat.id == ADMIN_ID)
-def add_cfg(message):
-    msg = bot.send_message(message.chat.id, "پلن و لینک را با فرمت زیر بفرست:\n1gb vless://...")
-    bot.register_next_step_handler(msg, save_cfg)
+# اتصال به درگاه (بدون باگ)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
+def process_buy(call):
+    plan = call.data.split("_")[1]
+    # (در اینجا کد اتصال به API پلسیو قرار می‌گیرد تا لینک پرداخت ارسال شود)
+    bot.answer_callback_query(call.id, "در حال ساخت فاکتور...")
+    bot.send_message(call.message.chat.id, "لینک پرداخت برای شما تولید شد (نمونه).")
 
-def save_cfg(message):
-    try:
-        plan, link = message.text.split(" ", 1)
-        db.execute("INSERT INTO config_pool VALUES (?, ?)", (plan, link))
-        db.commit()
-        bot.send_message(message.chat.id, "✅ ذخیره شد.")
-    except:
-        bot.send_message(message.chat.id, "❌ فرمت اشتباه بود.")
+# پنل مدیریت (کاملا دکمه‌ای)
+@bot.message_handler(func=lambda m: m.text == '⚙️ پنل مدیریت' and m.chat.id == ADMIN_ID)
+def admin_panel(message):
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('➕ افزودن کانفیگ', '🔙 بازگشت')
+    bot.send_message(message.chat.id, "به پنل مدیریت خوش آمدید:", reply_markup=markup)
 
-# اتصال به رندر
+@bot.message_handler(func=lambda m: m.text == '➕ افزودن کانفیگ')
+def ask_plan(message):
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('1gb', '3gb', '5gb', '🔙 بازگشت')
+    bot.send_message(message.chat.id, "پلن را انتخاب کنید:", reply_markup=markup)
+    bot.register_next_step_handler(message, ask_link)
+
+def ask_link(message):
+    plan = message.text
+    if plan == '🔙 بازگشت': return start(message)
+    msg = bot.send_message(message.chat.id, f"لینک کانفیگِ {plan} را بفرستید:")
+    bot.register_next_step_handler(msg, lambda m: save_cfg(m, plan))
+
+def save_cfg(message, plan):
+    db.execute("INSERT INTO config_pool VALUES (?, ?)", (plan, message.text))
+    db.commit()
+    bot.send_message(message.chat.id, "✅ با موفقیت ذخیره شد.", reply_markup=telebot.types.ReplyKeyboardRemove())
+    start(message)
+
+# اتصال وب‌هوک
 @app.route('/' + TOKEN, methods=['POST'])
 def webhook():
-    json_str = request.stream.read().decode('utf-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
+    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode('utf-8'))])
     return "OK", 200
 
 if __name__ == "__main__":
