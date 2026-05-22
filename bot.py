@@ -12,7 +12,7 @@ def home(): return "Bot is running!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 80)))
 Thread(target=run).start()
 
-# تنظیمات
+# اطلاعات ربات
 API_TOKEN = '8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI'
 PLISIO_API_KEY = 'qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy'
 bot = telebot.TeleBot(API_TOKEN)
@@ -41,12 +41,12 @@ def buy_plan(call):
     plan = call.data.split("_")[1]
     bot.answer_callback_query(call.id, "⏳ در حال ساخت فاکتور...")
     
-    # درخواست به پلسیو
     url = "https://plisio.net/api/v1/invoices/new"
     params = {
         "api_key": PLISIO_API_KEY,
         "currency": "USDT_BSC",
         "order_number": os.urandom(4).hex(),
+        "order_name": f"Config_{plan}",  # این همان پارامتر Missing است که اضافه شد
         "amount": str(PRICES[plan]),
         "source_currency": "USD",
         "callback_url": "https://t.me/Vpn_mirza_bot"
@@ -62,8 +62,8 @@ def buy_plan(call):
             markup.add(types.InlineKeyboardButton("💳 پرداخت آنلاین", url=invoice_url))
             bot.send_message(call.message.chat.id, f"✅ فاکتور {plan} ساخته شد:", reply_markup=markup)
         else:
-            bot.send_message(call.message.chat.id, f"❌ خطا: {res.get('data', {}).get('message', 'خطای ناشناخته')}")
+            bot.send_message(call.message.chat.id, f"❌ خطا از درگاه: {res.get('data', {}).get('message', 'خطای ناشناخته')}")
     except Exception as e:
-        bot.send_message(call.message.chat.id, "❌ خطا در اتصال به درگاه. دوباره تلاش کنید.")
+        bot.send_message(call.message.chat.id, "❌ خطای اتصال به درگاه.")
 
 bot.infinity_polling()
