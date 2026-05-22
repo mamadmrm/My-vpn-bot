@@ -24,14 +24,15 @@ db.commit()
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row('🛒 خرید اشتراک', '📁 سرویس‌های من')
-    if message.chat.id == ADMIN_ID: markup.add('⚙️ پنل مدیریت')
+    if message.chat.id == ADMIN_ID:
+        markup.add('⚙️ پنل مدیریت')
     bot.send_message(message.chat.id, "سلام! به ربات Vpn Mirza خوش آمدید.", reply_markup=markup)
 
-# دکمه خرید
+# خرید اشتراک
 @bot.message_handler(func=lambda m: m.text == '🛒 خرید اشتراک')
 def shop(message):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("۱ گیگ - ۱$", callback_data="buy_1gb"))
     markup.add(telebot.types.InlineKeyboardButton("۳ گیگ - ۲.۵$", callback_data="buy_3gb"))
     markup.add(telebot.types.InlineKeyboardButton("۵ گیگ - ۴$", callback_data="buy_5gb"))
-    bot.send_message(message.chat.id, "پل
+    bot.send_message(message.
