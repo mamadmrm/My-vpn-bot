@@ -39,7 +39,7 @@ def handle_payment(call):
     amounts = {"2gb": "2.0", "5gb": "4.0", "10gb": "9.0"}
     amount = amounts.get(plan, "2.0")
     
-    params = {
+    payload = {
         "api_key": PLISIO_API_KEY,
         "currency": "USDT_BSC",
         "amount": amount,
@@ -47,13 +47,17 @@ def handle_payment(call):
         "order_name": f"VPN_{plan}"
     }
     
-    res = requests.get("https://plisio.net/api/v1/invoices/new", params=params).json()
-    if res.get('status') == 'success':
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("💳 پرداخت آنلاین", url=res['data']['invoice_url']))
-        bot.send_message(call.message.chat.id, f"✅ فاکتور {plan} ساخته شد:", reply_markup=markup)
-    else:
-        bot.send_message(call.message.chat.id, "❌ خطای درگاه.")
+    try:
+        res = requests.post("https://plisio.net/api/v1/invoices/new", data=payload, timeout=20)
+        data = res.json()
+        if data.get('status') == 'success':
+            markup = telebot.types.InlineKeyboardMarkup()
+            markup.add(telebot.types.InlineKeyboardButton("💳 پرداخت آنلاین", url=data['data']['invoice_url']))
+            bot.send_message(call.message.chat.id, f"✅ فاکتور {plan} ساخته شد:", reply_markup=markup)
+        else:
+            bot.send_message(call.message.chat.id, f"❌ خطای درگاه: {data.get('data', {}).get('message', 'خطا')}")
+    except Exception as e:
+        bot.send_message(call.message.chat.id, "❌ خطای اتصال به سرور.")
 
 @bot.message_handler(func=lambda m: m.text == '📁 سرویس‌های من')
 def my_services(message):
@@ -70,10 +74,13 @@ def admin_menu(message):
     bot.register_next_step_handler(msg, save_cfg)
 
 def save_cfg(message):
-    plan, link = message.text.split(" ", 1)
-    db.execute("INSERT INTO config_pool (plan, link) VALUES (?, ?)", (plan, link))
-    db.commit()
-    bot.send_message(message.chat.id, "✅ ذخیره شد.")
+    try:
+        plan, link = message.text.split(" ", 1)
+        db.execute("INSERT INTO config_pool (plan, link) VALUES (?, ?)", (plan, link))
+        db.commit()
+        bot.send_message(message.chat.id, "✅ ذخیره شد.")
+    except:
+        bot.send_message(message.chat.id, "❌ فرمت اشتباه بود.")
 
 @app.route('/' + TOKEN, methods=['POST'])
 def webhook():
