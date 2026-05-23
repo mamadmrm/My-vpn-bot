@@ -14,7 +14,7 @@ const db = new sqlite3.Database("./database.db");
 
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
-// ================= DATABASE =================
+// ================= DB =================
 
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
@@ -53,7 +53,7 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
  res.sendStatus(200);
 });
 
-// ================= PAYMENTS MEMORY =================
+// ================= PAYMENTS =================
 
 let payments = {};
 
@@ -66,22 +66,9 @@ bot.onText(/\/start/, (msg) => {
  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
   if (!user) {
+   db.run(`INSERT INTO users(id, first_start) VALUES(?,1)`, [chatId]);
 
-   db.run(
-    `INSERT INTO users(id, first_start) VALUES(?,1)`,
-    [chatId]
-   );
-
-   bot.sendMessage(chatId, `👋 سلام و درود به ربات VPN Mirza خوش آمدید
-
-🔸 زمان سرویس ها نامحدود هست 
-
-🔹 تعداد کاربر سرویس ها نامحدود هست
-
-🔸 سرویس ها با توجه به شرایط حال حاضر اینترنت دارن به فروش میرسن در حال حاضر در تمام کشور با قدرت متصل هست ولی تضمینی بر اتصال آن داده نمیشود ، تضمینی که میدیم اینکه مثل همیشه تمام تلاشمون رو برای حفظ اتصال شما انجام بدیم و هرکاری از دستمون بر میاد انجام بدیم 
-
-🔹 سرویس ها شامل بازگشت وجه نیستن در صورتی که شرایط به گونه ای باشد که کیفیت اتصال پایین یا قطع باشد مجموعه به کیف پولتون در ربات یا وجه واریز میکند یا این که حجم و زمان هدیه بهتون داده میشود
-`, {
+   bot.sendMessage(chatId, `👋 خوش آمدید به VPN Mirza`, {
     reply_markup: {
      inline_keyboard: [
       [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
@@ -109,7 +96,7 @@ bot.onText(/\/start/, (msg) => {
 
 });
 
-// ================= CALLBACKS =================
+// ================= CALLBACK =================
 
 bot.on("callback_query", async (q) => {
 
@@ -117,35 +104,33 @@ bot.on("callback_query", async (q) => {
  const data = q.data;
 
  // ---------- BUY MENU ----------
-
  if (data === "buy") {
 
-  return bot.sendMessage(chatId, "پلن‌ها:", {
+  return bot.sendMessage(chatId, "💰 پلن‌ها (تومان):", {
    reply_markup: {
     inline_keyboard: [
-     [{ text: "2GB - 2$", callback_data: "buy_2GB" }],
-     [{ text: "5GB - 4$", callback_data: "buy_5GB" }],
-     [{ text: "10GB - 9$", callback_data: "buy_10GB" }]
+     [{ text: "2GB - 340,000 تومان", callback_data: "buy_2" }],
+     [{ text: "5GB - 800,000 تومان", callback_data: "buy_5" }],
+     [{ text: "10GB - 1,500,000 تومان", callback_data: "buy_10" }]
     ]
    }
   });
 
  }
 
- // ---------- BUY PROCESS ----------
-
+ // ---------- BUY LOGIC ----------
  if (data.startsWith("buy_")) {
 
-  let amount = 2;
+  let amount = 340000;
   let type = "2GB";
 
-  if (data === "buy_5GB") {
-   amount = 4;
+  if (data === "buy_5") {
+   amount = 800000;
    type = "5GB";
   }
 
-  if (data === "buy_10GB") {
-   amount = 9;
+  if (data === "buy_10") {
+   amount = 1500000;
    type = "10GB";
   }
 
@@ -155,7 +140,11 @@ bot.on("callback_query", async (q) => {
 
    payments[orderId] = { chatId, type };
 
-   const crypto = amount >= 5 ? "BNB" : "TON";
+   // ⚠️ Plisio: USD باید باشه، پس تبدیل تقریبی تومان به دلار
+   const usd = Math.max(Math.round(amount / 60000), 1);
+
+   // TON برای همه پلن‌ها (پایدارتر از BNB)
+   const currency = "TON";
 
    const response = await axios.get(
     "https://api.plisio.net/api/v1/invoices/new",
@@ -166,9 +155,9 @@ bot.on("callback_query", async (q) => {
       order_name: type,
 
       source_currency: "USD",
-      source_amount: Math.max(amount, 1),
+      source_amount: usd,
 
-      currency: crypto,
+      currency: currency,
 
       email: "test@test.com",
 
@@ -178,16 +167,16 @@ bot.on("callback_query", async (q) => {
    );
 
    if (!response.data || response.data.status !== "success") {
-    console.log(response.data);
-    return bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
+    console.log("PLISIO ERROR:", response.data);
+    return bot.sendMessage(chatId, "❌ خطا در ساخت لینک پرداخت");
    }
 
    const payUrl = response.data.data.invoice_url;
 
-   bot.sendMessage(chatId, "💳 پرداخت:", {
+   bot.sendMessage(chatId, `💳 پرداخت (${currency})`, {
     reply_markup: {
      inline_keyboard: [
-      [{ text: `💰 پرداخت با ${crypto}`, url: payUrl }]
+      [{ text: "💰 پرداخت", url: payUrl }]
      ]
     }
    });
@@ -200,23 +189,22 @@ bot.on("callback_query", async (q) => {
  }
 
  // ---------- FREE ----------
-
  if (data === "free") {
 
   db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
    if (!user) return;
 
-   if (user.free_used === 1) {
+   if (user.free_used === 1)
     return bot.sendMessage(chatId, "❌ قبلاً تست گرفتی");
-   }
 
    db.get(
     `SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`,
     [],
     (err, row) => {
 
-     if (!row) return bot.sendMessage(chatId, "❌ تست نداریم");
+     if (!row)
+      return bot.sendMessage(chatId, "❌ تست نداریم");
 
      db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
      db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
@@ -235,8 +223,7 @@ bot.on("callback_query", async (q) => {
 
  }
 
- // ---------- MY SERVICES ----------
-
+ // ---------- MY ----------
  if (data === "my") {
 
   db.all(
@@ -253,59 +240,6 @@ bot.on("callback_query", async (q) => {
 
    }
   );
-
- }
-
- // ---------- ADMIN PANEL ----------
-
- if (data === "admin" && chatId === ADMIN_ID) {
-
-  return bot.sendMessage(chatId, "⚙️ پنل مدیریت", {
-   reply_markup: {
-    inline_keyboard: [
-     [{ text: "➕ 2GB", callback_data: "add_2GB" }],
-     [{ text: "➕ 5GB", callback_data: "add_5GB" }],
-     [{ text: "➕ 10GB", callback_data: "add_10GB" }],
-     [{ text: "➕ FREE", callback_data: "add_FREE" }]
-    ]
-   }
-  });
-
- }
-
- // ---------- ADD CONFIG ----------
-
- if (chatId === ADMIN_ID && data.startsWith("add_")) {
-
-  waitingType = data.replace("add_", "");
-  waitingAdmin = true;
-
-  return bot.sendMessage(chatId, `📥 کانفیگ ${waitingType} رو بفرست`);
-
- }
-
-});
-
-// ================= ADMIN MESSAGE =================
-
-let waitingAdmin = false;
-let waitingType = "";
-
-bot.on("message", (msg) => {
-
- if (msg.chat.id !== ADMIN_ID) return;
- if (!waitingAdmin) return;
-
- if (msg.text && msg.text.startsWith("vless://")) {
-
-  db.run(
-   `INSERT INTO configs(type,config) VALUES(?,?)`,
-   [waitingType, msg.text]
-  );
-
-  waitingAdmin = false;
-
-  bot.sendMessage(ADMIN_ID, "✅ ذخیره شد");
 
  }
 
