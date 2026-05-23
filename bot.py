@@ -4,10 +4,11 @@ import sqlite3
 import requests
 from flask import Flask, request
 
-TOKEN = '8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI'
-ADMIN_ID = 489450312
-WEBHOOK_URL = "https://my-vpn-bot-wt0a.onrender.com/"
-PLISIO_API_KEY = 'qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy'
+# دریافت توکن و کلیدها از Environment Variables برای امنیت بیشتر (در Railway تنظیم کن)
+TOKEN = os.environ.get('TOKEN', '8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI')
+PLISIO_API_KEY = os.environ.get('PLISIO_API_KEY', 'qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy')
+# آدرس دامنه‌ای که Railway بهت داده رو اینجا بذار (بدون / آخر)
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://my-vpn-bot-production.up.railway.app')
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -27,7 +28,7 @@ def start(message):
 def shop(message):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("۲ گیگ - ۲$", callback_data="buy_2gb"))
-    markup.add(telebot.types.InlineKeyboardButton("۵ گیگ - ۴$", callback_data="buy_10gb")) #اصلاح پلن ۵
+    markup.add(telebot.types.InlineKeyboardButton("۵ گیگ - ۴$", callback_data="buy_5gb"))
     markup.add(telebot.types.InlineKeyboardButton("۱۰ گیگ - ۹$", callback_data="buy_10gb"))
     bot.send_message(message.chat.id, "پلن مورد نظر را انتخاب کنید:", reply_markup=markup)
 
@@ -36,24 +37,20 @@ def handle_payment(call):
     plan = call.data.split("_")[1]
     amounts = {"2gb": "2.0", "5gb": "4.0", "10gb": "9.0"}
     
-    # ساخت هدرهای دقیق که هر وب‌سایتی را راضی می‌کند
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-    }
-    
+    headers = {'User-Agent': 'Mozilla/5.0'}
     payload = {
         "api_key": PLISIO_API_KEY,
         "currency": "USDT_BSC",
         "amount": amounts.get(plan, "2.0"),
         "order_number": f"{call.message.chat.id}_{plan}",
         "order_name": f"VPN_{plan}",
-        "callback_url": "https://google.com" # حتی یک یو‌ار‌ال ساده هم کافیست
+        "callback_url": "https://google.com"
     }
     
     try:
-        # متد POST با هدر کامل
-        res = requests.post("https://plisio.net/api/v1/invoices/new", data=payload, headers=headers, timeout=20)
+        # استفاده از session برای پایداری بیشتر
+        session = requests.Session()
+        res = session.post("https://plisio.net/api/v1/invoices/new", data=payload, headers=headers, timeout=20)
         
         if res.status_code == 200:
             res_data = res.json()
@@ -63,21 +60,26 @@ def handle_payment(call):
                 markup.add(telebot.types.InlineKeyboardButton("💳 پرداخت آنلاین", url=url))
                 bot.send_message(call.message.chat.id, f"✅ فاکتور {plan} آماده است:", reply_markup=markup)
             else:
-                bot.send_message(call.message.chat.id, f"❌ خطای پلسیو: {res_data.get('data', {}).get('message', 'خطای ناشناس')}")
+                bot.send_message(call.message.chat.id, "❌ خطای درگاه پرداخت.")
         else:
-            bot.send_message(call.message.chat.id, f"❌ سرور پلسیو پاسخ نداد (کد: {res.status_code})")
+            bot.send_message(call.message.chat.id, "❌ سرور درگاه پاسخ نداد.")
     except Exception as e:
-        bot.send_message(call.message.chat.id, f"❌ خطای اتصال به درگاه: {str(e)[:40]}")
+        bot.send_message(call.message.chat.id, f"❌ خطا: {str(e)[:30]}")
 
+# مسیر وب‌هوک برای اتصال به تلگرام
 @app.route('/' + TOKEN, methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_update = request.get_json()
-        bot.process_new_updates([telebot.types.Update.de_json(json_update)])
-        return "OK", 200
-    return "Forbidden", 403
+    json_update = request.get_json()
+    bot.process_new_updates([telebot.types.Update.de_json(json_update)])
+    return "OK", 200
+
+@app.route('/')
+def home():
+    return "Bot is running!"
 
 if __name__ == "__main__":
+    # تنظیم وب‌هوک هنگام اجرای کد
+    webhook_link = f"{WEBHOOK_URL}/{TOKEN}"
     bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL + TOKEN)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    bot.set_webhook(url=webhook_link)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
