@@ -1,13 +1,20 @@
 require('dotenv').config();
 
 const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
+const express = require('express');
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
- polling: true
-});
+const app = express();
+app.use(express.json());
+
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 const db = new sqlite3.Database('./database.db');
+
+const ADMIN_ID = Number(process.env.ADMIN_ID);
+
+// ---------------- DATABASE ----------------
 
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
@@ -33,31 +40,22 @@ CREATE TABLE IF NOT EXISTS configs (
 )
 `);
 
-const ADMIN_ID = 489450312;
+// ---------------- START ----------------
 
 bot.onText(/\/start/, (msg) => {
 
  const chatId = msg.chat.id;
 
- db.run(
-  `INSERT OR IGNORE INTO users(id) VALUES(?)`,
-  [chatId]
- );
+ db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
 
  bot.sendMessage(chatId,
-  '🌐 خوش اومدی',
+  "🌐 به ربات VPN خوش اومدی",
   {
    reply_markup: {
     inline_keyboard: [
-     [
-      { text: '🛒 خرید اشتراک', callback_data: 'buy' }
-     ],
-     [
-      { text: '🎁 تست رایگان', callback_data: 'free' }
-     ],
-     [
-      { text: '📦 سرویس های من', callback_data: 'my' }
-     ]
+     [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
+     [{ text: "🎁 تست رایگان", callback_data: "free" }],
+     [{ text: "📦 سرویس‌های من", callback_data: "my" }]
     ]
    }
   }
@@ -65,260 +63,100 @@ bot.onText(/\/start/, (msg) => {
 
 });
 
-bot.on('callback_query', (query) => {
+// ---------------- CALLBACKS ----------------
+
+bot.on('callback_query', async (query) => {
 
  const chatId = query.message.chat.id;
  const data = query.data;
 
- if(data === 'buy') {
-
-  bot.sendMessage(chatId,
-   'پلن انتخاب کن',
-   {
-    reply_markup: {
-     inline_keyboard: [
-      [
-       { text: '2GB - 2$', callback_data: 'buy_2' }
-      ],
-      [
-       { text: '5GB - 4$', callback_data: 'buy_5' }
-      ],
-      [
-       { text: '10GB - 9$', callback_data: 'buy_10' }
-      ]
-     ]
-    }
+ // BUY MENU
+ if (data === 'buy') {
+  return bot.sendMessage(chatId, "پلن انتخاب کن:", {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "2GB - 2$", callback_data: "buy_2" }],
+     [{ text: "5GB - 4$", callback_data: "buy_5" }],
+     [{ text: "10GB - 9$", callback_data: "buy_10" }]
+    ]
    }
-  );
-
+  });
  }
 
+ // BUY PROCESS
  if (data.startsWith('buy_')) {
 
   let amount = 0;
   let type = '';
 
-  if (data === 'buy_2') {
-    amount = 2;
-    type = '2GB';
-  }
-
-  if (data === 'buy_5') {
-    amount = 4;
-    type = '5GB';
-  }
-
-  if (data === 'buy_10') {
-    amount = 9;
-    type = '10GB';
-  }
+  if (data === 'buy_2') { amount = 2; type = '2GB'; }
+  if (data === 'buy_5') { amount = 4; type = '5GB'; }
+  if (data === 'buy_10') { amount = 9; type = '10GB'; }
 
   try {
 
-    const invoice = await axios.post(
-      "https://api.plisio.net/api/v1/invoices/new",
-      new URLSearchParams({
-        source_currency: "USD",
-        source_amount: amount.toString(),
-        order_number: `${data}_${Date.now()}`,
-        currency: "USDT",
-        email: "test@test.com",
-        callback_url: "https://YOUR-RAILWAY-URL.up.railway.app/webhook",
-        api_key: process.env.PLISIO_SECRET_KEY
-      }).toString(),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        }
-      }
-    );
+   const res = await axios.post(
+    "https://api.plisio.net/api/v1/invoices/new",
+    new URLSearchParams({
+     source_currency: "USD",
+     source_amount: amount.toString(),
+     order_number: `${chatId}_${Date.now()}`,
+     currency: "USDT",
+     email: "test@test.com",
+     callback_url: `${process.env.BASE_URL}/webhook`,
+     api_key: process.env.PLISIO_SECRET_KEY
+    }),
+    { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+   );
 
-    const payUrl = invoice.data.data.invoice_url;
+   const payUrl = res.data.data.invoice_url;
 
-    global[data] = { type };
+   global[chatId] = { type };
 
-    bot.sendMessage(chatId, "💳 برای پرداخت روی دکمه زیر بزن:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "💰 پرداخت", url: payUrl }]
-        ]
-      }
-    });
-
-  } catch (err) {
-    console.log(err.response?.data || err.message);
-    bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
-  }
-}
-
-    db.run(
-     `UPDATE configs SET used = 1 WHERE id = ?`,
-     [row.id]
-    );
-
-    db.run(
-     `INSERT INTO services(user_id, config) VALUES(?, ?)`,
-     [chatId, row.config]
-    );
-
-    bot.sendMessage(chatId,
-     `✅ خرید انجام شد\n\n${row.config}`
-    );
-
-   }
-  );
-
- }
-
- if(data === 'free') {
-
-  db.get(
-   `SELECT * FROM users WHERE id = ?`,
-   [chatId],
-   (err, user) => {
-
-    if(user.free_used === 1) {
-     return bot.sendMessage(chatId,
-      '❌ قبلا تست گرفتی'
-     );
-    }
-
-    db.get(
-     `SELECT * FROM configs WHERE type = 'FREE' AND used = 0 LIMIT 1`,
-     [],
-     (err, row) => {
-
-      if(!row) {
-       return bot.sendMessage(chatId,
-        '❌ تست موجود نیست'
-       );
-      }
-
-      db.run(
-       `UPDATE configs SET used = 1 WHERE id = ?`,
-       [row.id]
-      );
-
-      db.run(
-       `UPDATE users SET free_used = 1 WHERE id = ?`,
-       [chatId]
-      );
-
-      db.run(
-       `INSERT INTO services(user_id, config) VALUES(?, ?)`,
-       [chatId, row.config]
-      );
-
-      bot.sendMessage(chatId,
-       `🎁 تست رایگان\n\n${row.config}`
-      );
-
-     }
-    );
-
-   }
-  );
-
- }
-
- if(data === 'my') {
-
-  db.all(
-   `SELECT * FROM services WHERE user_id = ?`,
-   [chatId],
-   (err, rows) => {
-
-    if(!rows.length) {
-     return bot.sendMessage(chatId,
-      '❌ سرویسی نداری'
-     );
-    }
-
-    rows.forEach((s) => {
-
-     bot.sendMessage(chatId,
-      `📦 سرویس:\n\n${s.config}`
-     );
-
-    });
-
-   }
-  );
-
- }
-
-});
-
-let waiting = false;
-let currentType = '';
-
-bot.onText(/\/admin/, (msg) => {
-
- if(msg.chat.id !== ADMIN_ID) return;
-
- bot.sendMessage(ADMIN_ID,
-  'پنل مدیریت',
-  {
-   reply_markup: {
-    inline_keyboard: [
-     [
-      { text: '➕ افزودن 2GB', callback_data: 'add_2GB' }
-     ],
-     [
-      { text: '➕ افزودن 5GB', callback_data: 'add_5GB' }
-     ],
-     [
-      { text: '➕ افزودن 10GB', callback_data: 'add_10GB' }
-     ],
-     [
-      { text: '➕ افزودن تست', callback_data: 'add_FREE' }
+   bot.sendMessage(chatId, "💳 پرداخت رو انجام بده:", {
+    reply_markup: {
+     inline_keyboard: [
+      [{ text: "💰 پرداخت", url: payUrl }]
      ]
-    ]
-   }
+    }
+   });
+
+  } catch (e) {
+   console.log(e.response?.data || e.message);
+   bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
   }
- );
-
-});
-
-bot.on('callback_query', (query) => {
-
- if(query.message.chat.id !== ADMIN_ID) return;
-
- if(query.data.startsWith('add_')) {
-
-  currentType = query.data.replace('add_', '');
-
-  waiting = true;
-
-  bot.sendMessage(ADMIN_ID,
-   'کانفیگ vless بفرست'
-  );
 
  }
 
-});
+ // FREE TEST
+ if (data === 'free') {
 
-bot.on('message', (msg) => {
+  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
- if(msg.chat.id !== ADMIN_ID) return;
+   if (user.free_used === 1) {
+    return bot.sendMessage(chatId, "❌ قبلاً تست گرفتی");
+   }
 
- if(!waiting) return;
+   db.get(`SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`, [], (err, row) => {
 
- if(msg.text.startsWith('vless://')) {
+    if (!row) return bot.sendMessage(chatId, "❌ تست موجود نیست");
 
-  db.run(
-   `INSERT INTO configs(type, config) VALUES(?, ?)`,
-   [currentType, msg.text]
-  );
+    db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
+    db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
 
-  bot.sendMessage(ADMIN_ID,
-   '✅ ذخیره شد'
-  );
+    db.run(`INSERT INTO services(user_id, config) VALUES(?,?)`, [chatId, row.config]);
 
-  waiting = false;
+    bot.sendMessage(chatId, `🎁 تست رایگان:\n\n${row.config}`);
+
+   });
+
+  });
 
  }
 
-});
+ // MY SERVICES
+ if (data === 'my') {
 
-console.log('Bot Running...');
+  db.all(`SELECT * FROM services WHERE user_id=?`, [chatId], (err, rows) => {
+
+   if (!rows.length) return bot.sendMessage
