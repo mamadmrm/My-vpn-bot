@@ -8,12 +8,9 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// ================= BOT =================
-
-const bot = new TelegramBot(
- process.env.BOT_TOKEN,
- { polling: false }
-);
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+ polling: false
+});
 
 const db = new sqlite3.Database("./database.db");
 
@@ -21,44 +18,50 @@ const ADMIN_ID = Number(process.env.ADMIN_ID);
 
 // ================= DATABASE =================
 
-db.run(`
-CREATE TABLE IF NOT EXISTS users (
- id INTEGER PRIMARY KEY,
- free_used INTEGER DEFAULT 0
-)
-`);
+db.serialize(() => {
 
-db.run(`
-CREATE TABLE IF NOT EXISTS configs (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- type TEXT,
- config TEXT,
- used INTEGER DEFAULT 0
-)
-`);
+ db.run(`
+ CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY,
+  free_used INTEGER DEFAULT 0
+ )
+ `);
 
-db.run(`
-CREATE TABLE IF NOT EXISTS services (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER,
- config TEXT
-)
-`);
+ db.run(`
+ CREATE TABLE IF NOT EXISTS configs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT,
+  config TEXT,
+  used INTEGER DEFAULT 0
+ )
+ `);
 
-db.run(`
-CREATE TABLE IF NOT EXISTS payments (
- chat_id INTEGER PRIMARY KEY,
- pay_url TEXT,
- created_at INTEGER
-)
-`);
+ db.run(`
+ CREATE TABLE IF NOT EXISTS services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  type TEXT,
+  config TEXT
+ )
+ `);
+
+ db.run(`
+ CREATE TABLE IF NOT EXISTS payments (
+  user_id INTEGER PRIMARY KEY,
+  pay_url TEXT,
+  plan TEXT,
+  created_at INTEGER
+ )
+ `);
+
+});
 
 // ================= WEBHOOK =================
 
-const WEBHOOK_URL =
+const WEBHOOK =
 `https://${process.env.RAILWAY_STATIC_URL}/bot${process.env.BOT_TOKEN}`;
 
-bot.setWebHook(WEBHOOK_URL);
+bot.setWebHook(WEBHOOK);
 
 app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
 
@@ -76,24 +79,45 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
 
 });
 
-// ================= ADMIN STATE =================
-
-let waitingAdmin = false;
-let waitingType = "";
-
 // ================= START =================
+
+function mainMenu(chatId) {
+
+ return {
+
+  reply_markup: {
+
+   resize_keyboard: true,
+
+   keyboard: [
+
+    ["🛒 خرید اشتراک"],
+
+    ["🎁 تست رایگان", "📦 سرویس های من"],
+
+    ...(chatId === ADMIN_ID
+     ? [["⚙️ مدیریت"]]
+     : [])
+
+   ]
+
+  }
+
+ };
+
+}
 
 bot.onText(/\/start/, async (msg) => {
 
  const chatId = msg.chat.id;
 
  db.run(
-  `INSERT OR IGNORE INTO users(id)
-   VALUES(?)`,
+  `INSERT OR IGNORE INTO users(id) VALUES(?)`,
   [chatId]
  );
 
  bot.sendMessage(chatId,
+
 `سلام و درود به ربات VPN Mirza خوش آمدید
 
 🔸 زمان سرویس ها نامحدود هست
@@ -101,29 +125,17 @@ bot.onText(/\/start/, async (msg) => {
 🔹 تعداد کاربر سرویس ها نامحدود هست
 
 🔸 سرویس ها با توجه به شرایط حال حاضر اینترنت دارن به فروش میرسن در حال حاضر در تمام کشور با قدرت متصل هست ولی تضمینی بر اتصال آن داده نمیشود ، تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`
- ,
- {
-  reply_markup: {
-   keyboard: [
 
-    ["🛒 خرید اشتراک"],
-
-    ["🎁 تست رایگان"],
-
-    ["📦 سرویس های من"],
-
-    ...(chatId === ADMIN_ID
-      ? [["⚙️ پنل مدیریت"]]
-      : [])
-
-   ],
-   resize_keyboard: true
-  }
- });
+ , mainMenu(chatId));
 
 });
 
-// ================= TEXT BUTTONS =================
+// ================= ADMIN STATE =================
+
+let adminMode = {};
+let adminType = {};
+
+// ================= MESSAGE =================
 
 bot.on("message", async (msg) => {
 
@@ -133,25 +145,28 @@ bot.on("message", async (msg) => {
 
  if (!text) return;
 
- // ================= BUY MENU =================
+ // ================= BUY =================
 
  if (text === "🛒 خرید اشتراک") {
 
   return bot.sendMessage(chatId,
+
    "💰 انتخاب پلن:",
+
    {
     reply_markup: {
      inline_keyboard: [
 
-      [{ text: "2GB - 340,000 تومان", callback_data: "buy_2" }],
+      [{ text: "2GB - 340,000 تومان", callback_data: "buy_2GB" }],
 
-      [{ text: "5GB - 800,000 تومان", callback_data: "buy_5" }],
+      [{ text: "5GB - 800,000 تومان", callback_data: "buy_5GB" }],
 
-      [{ text: "10GB - 1,500,000 تومان", callback_data: "buy_10" }]
+      [{ text: "10GB - 1,500,000 تومان", callback_data: "buy_10GB" }]
 
      ]
     }
    }
+
   );
 
  }
@@ -161,24 +176,10 @@ bot.on("message", async (msg) => {
  if (text === "🎁 تست رایگان") {
 
   db.get(
-   `SELECT * FROM users
-    WHERE id=?`,
+   `SELECT * FROM users WHERE id=?`,
    [chatId],
    (err, user) => {
 
-    if (!user) {
-
-     db.run(
-      `INSERT INTO users(id,free_used)
-       VALUES(?,0)`,
-      [chatId]
-     );
-
-     user = { free_used: 0 };
-
-    }
-
-    // فقط 1 بار
     if (user.free_used === 1) {
 
      return bot.sendMessage(chatId,
@@ -192,9 +193,9 @@ bot.on("message", async (msg) => {
       AND used=0
       LIMIT 1`,
      [],
-     (err, row) => {
+     (err, cfg) => {
 
-      if (!row) {
+      if (!cfg) {
 
        return bot.sendMessage(chatId,
         "❌ تست رایگان موجود نیست");
@@ -202,31 +203,29 @@ bot.on("message", async (msg) => {
       }
 
       db.run(
-       `UPDATE users
-        SET free_used=1
-        WHERE id=?`,
+       `UPDATE users SET free_used=1 WHERE id=?`,
        [chatId]
       );
 
       db.run(
-       `UPDATE configs
-        SET used=1
-        WHERE id=?`,
-       [row.id]
+       `UPDATE configs SET used=1 WHERE id=?`,
+       [cfg.id]
       );
 
       db.run(
-       `INSERT INTO services(user_id,config)
-        VALUES(?,?)`,
-       [chatId, row.config]
+       `INSERT INTO services(user_id,type,config)
+        VALUES(?,?,?)`,
+       [chatId, "20MB TEST", cfg.config]
       );
 
       bot.sendMessage(chatId,
-`🎁 تست رایگان 20 مگ شما:
 
-${row.config}
+`🎁 تست رایگان 20 مگ:
 
-⚠️ فقط جهت تست سرویس`
+${cfg.config}
+
+⚠️ فقط جهت تست`
+
       );
 
      }
@@ -242,8 +241,7 @@ ${row.config}
  if (text === "📦 سرویس های من") {
 
   db.all(
-   `SELECT * FROM services
-    WHERE user_id=?`,
+   `SELECT * FROM services WHERE user_id=?`,
    [chatId],
    (err, rows) => {
 
@@ -256,10 +254,10 @@ ${row.config}
 
     let txt = "📦 سرویس های شما:\n\n";
 
-    rows.forEach((r, i) => {
+    rows.forEach((s, i) => {
 
-     txt += `🔹 سرویس ${i + 1}\n`;
-     txt += `${r.config}\n\n`;
+     txt += `🔹 ${s.type}\n`;
+     txt += `${s.config}\n\n`;
 
     });
 
@@ -270,55 +268,58 @@ ${row.config}
 
  }
 
- // ================= ADMIN PANEL =================
+ // ================= ADMIN =================
 
- if (text === "⚙️ پنل مدیریت" &&
-     chatId === ADMIN_ID) {
+ if (
+  text === "⚙️ مدیریت" &&
+  chatId === ADMIN_ID
+ ) {
 
   return bot.sendMessage(chatId,
+
 `⚙️ پنل مدیریت
 
-➕ افزودن کانفیگ:
-2GB
-5GB
-10GB
-FREE
+ارسال کن:
 
-📥 مثال:
 add 2GB
+add 5GB
+add 10GB
 add FREE`
+
   );
 
  }
 
- // ================= ADMIN ADD =================
+ // ================= ADD MODE =================
 
  if (
   chatId === ADMIN_ID &&
   text.startsWith("add ")
  ) {
 
-  waitingAdmin = true;
-
-  waitingType =
+  const type =
    text.replace("add ", "").trim();
 
+  adminMode[chatId] = true;
+  adminType[chatId] = type;
+
   return bot.sendMessage(chatId,
-`📥 حالا همه کانفیگ های ${waitingType}
-را پشت سر هم ارسال کن
+
+`📥 حالا کانفیگ های ${type} را ارسال کن
 
 هر خط = یک کانفیگ
 
 وقتی تمام شد:
 done`
+
   );
 
  }
 
- // ================= RECEIVE CONFIGS =================
+ // ================= SAVE CONFIGS =================
 
  if (
-  waitingAdmin &&
+  adminMode[chatId] &&
   chatId === ADMIN_ID &&
   text !== "done"
  ) {
@@ -326,51 +327,51 @@ done`
   const lines =
    text.split("\n");
 
-  let count = 0;
+  let saved = 0;
 
-  lines.forEach(cfg => {
+  lines.forEach(line => {
 
    if (
-    cfg.trim().startsWith("vless://")
+    line.trim().startsWith("vless://")
    ) {
 
     db.run(
      `INSERT INTO configs(type,config)
       VALUES(?,?)`,
      [
-      waitingType,
-      cfg.trim()
+      adminType[chatId],
+      line.trim()
      ]
     );
 
-    count++;
+    saved++;
 
    }
 
   });
 
   return bot.sendMessage(chatId,
-   `✅ ${count} کانفیگ ذخیره شد`);
+   `✅ ${saved} کانفیگ ذخیره شد`);
+
  }
 
  // ================= DONE =================
 
  if (
-  waitingAdmin &&
-  chatId === ADMIN_ID &&
+  adminMode[chatId] &&
   text === "done"
  ) {
 
-  waitingAdmin = false;
-  waitingType = "";
+  adminMode[chatId] = false;
 
   return bot.sendMessage(chatId,
-   "✅ افزودن کانفیگ تمام شد");
+   "✅ افزودن کانفیگ پایان یافت");
+
  }
 
 });
 
-// ================= PAYMENT CALLBACK =================
+// ================= CALLBACK =================
 
 bot.on("callback_query", async (q) => {
 
@@ -378,89 +379,98 @@ bot.on("callback_query", async (q) => {
 
  const data = q.data;
 
- // ================= BUY =================
-
- if (!data.startsWith("buy_"))
-  return;
+ // ================= PLANS =================
 
  const plans = {
 
-  buy_2: {
+  buy_2GB: {
    type: "2GB",
-   amount: 2
+   usd: 2
   },
 
-  buy_5: {
+  buy_5GB: {
    type: "5GB",
-   amount: 4
+   usd: 4
   },
 
-  buy_10: {
+  buy_10GB: {
    type: "10GB",
-   amount: 9
+   usd: 9
   }
 
  };
-
- const plan = plans[data];
-
- if (!plan) return;
-
- // لینک قبلی
- db.get(
-  `SELECT * FROM payments
-   WHERE chat_id=?`,
-  [chatId],
-  async (err, oldPay) => {
-
-   if (oldPay) {
-
-    return bot.sendMessage(chatId,
-`⚠️ شما یک لینک پرداخت فعال دارید
-
-⏰ اعتبار:
-30 دقیقه`
-     ,
-     {
-      reply_markup: {
-       inline_keyboard: [
-
-        [{ text: "💳 ادامه پرداخت", url: oldPay.pay_url }],
-
-        [{ text: "❌ حذف و ساخت جدید", callback_data: `new_${data}` }]
-
-       ]
-      }
-     });
-
-   }
-
-   await createPayment(chatId, plan);
-
-  });
 
  // ================= NEW LINK =================
 
  if (data.startsWith("new_")) {
 
   db.run(
-   `DELETE FROM payments
-    WHERE chat_id=?`,
+   `DELETE FROM payments WHERE user_id=?`,
    [chatId]
+  );
+
+  const key =
+   data.replace("new_", "");
+
+  return createPayment(
+   chatId,
+   plans[key]
+  );
+
+ }
+
+ // ================= BUY =================
+
+ if (plans[data]) {
+
+  db.get(
+   `SELECT * FROM payments WHERE user_id=?`,
+   [chatId],
+   async (err, pay) => {
+
+    if (pay) {
+
+     return bot.sendMessage(chatId,
+
+`⚠️ شما یک لینک پرداخت فعال دارید
+
+⏰ اعتبار:
+30 دقیقه`
+
+      ,
+      {
+       reply_markup: {
+        inline_keyboard: [
+
+         [{ text: "💳 ادامه پرداخت", url: pay.pay_url }],
+
+         [{ text: "♻️ ساخت لینک جدید", callback_data: `new_${data}` }]
+
+        ]
+       }
+      });
+
+    }
+
+    createPayment(chatId, plans[data]);
+
+   }
   );
 
  }
 
 });
 
-// ================= PAYMENT FUNCTION =================
+// ================= CREATE PAYMENT =================
 
 async function createPayment(chatId, plan) {
 
  try {
 
   const response = await axios.get(
+
    "https://api.plisio.net/api/v1/invoices/new",
+
    {
     params: {
 
@@ -470,52 +480,66 @@ async function createPayment(chatId, plan) {
      order_name:
       plan.type,
 
+     order_number:
+      `${chatId}_${Date.now()}`,
+
      source_currency:
       "USD",
 
      source_amount:
-      plan.amount,
+      plan.usd,
+
+     allowed_psys_cids:
+      "BNB,TON",
 
      currency:
       "USDT"
 
     }
    }
+
   );
 
   console.log(response.data);
 
-  const payUrl =
-   response.data?.data?.invoice_url;
-
-  if (!payUrl) {
+  if (
+   response.data.status !== "success"
+  ) {
 
    return bot.sendMessage(chatId,
     "❌ خطا در ساخت پرداخت");
 
   }
 
+  const payUrl =
+   response.data.data.invoice_url;
+
   db.run(
    `INSERT OR REPLACE INTO payments
-    (chat_id,pay_url,created_at)
-    VALUES(?,?,?)`,
+    (user_id,pay_url,plan,created_at)
+    VALUES(?,?,?,?)`,
    [
     chatId,
     payUrl,
+    plan.type,
     Date.now()
    ]
   );
 
   bot.sendMessage(chatId,
+
 `💳 لینک پرداخت ساخته شد
 
 ⏰ اعتبار:
 30 دقیقه`
+
   ,
   {
    reply_markup: {
     inline_keyboard: [
+
      [{ text: "💰 پرداخت", url: payUrl }]
+
     ]
    }
   });
@@ -524,13 +548,12 @@ async function createPayment(chatId, plan) {
   setTimeout(() => {
 
    db.run(
-    `DELETE FROM payments
-     WHERE chat_id=?`,
+    `DELETE FROM payments WHERE user_id=?`,
     [chatId]
    );
 
    bot.sendMessage(chatId,
-    "⌛ لینک پرداخت شما منقضی شد");
+    "⌛ لینک پرداخت منقضی شد");
 
   }, 30 * 60 * 1000);
 
