@@ -9,7 +9,6 @@ const app = express();
 app.use(express.json());
 
 const bot = new TelegramBot(process.env.BOT_TOKEN);
-
 const db = new sqlite3.Database("./database.db");
 
 const ADMIN_ID = Number(process.env.ADMIN_ID);
@@ -45,7 +44,18 @@ CREATE TABLE IF NOT EXISTS payments (
  chat_id INTEGER PRIMARY KEY,
  order_id TEXT,
  pay_url TEXT,
- type TEXT
+ type TEXT,
+ created_at INTEGER
+)
+`);
+
+db.run(`
+CREATE TABLE IF NOT EXISTS sales (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER,
+ type TEXT,
+ amount INTEGER,
+ time INTEGER
 )
 `);
 
@@ -61,17 +71,25 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
  res.sendStatus(200);
 });
 
+// ================= CLEAN OLD PAYMENTS =================
+
+setInterval(() => {
+
+ const expireTime = Date.now() - 10 * 60 * 1000;
+
+ db.run(`DELETE FROM payments WHERE created_at < ?`, [expireTime]);
+
+}, 60 * 1000);
+
 // ================= START =================
 
 bot.onText(/\/start/, (msg) => {
 
  const chatId = msg.chat.id;
 
- db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
+ db.get(`SELECT * FROM users WHERE id=?`, [chatId], () => {
 
-  if (!user) {
-   db.run(`INSERT INTO users(id) VALUES(?)`, [chatId]);
-  }
+  db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
 
   bot.sendMessage(chatId, "👋 خوش آمدید", {
    reply_markup: {
@@ -94,7 +112,7 @@ bot.on("callback_query", async (q) => {
  const chatId = q.message.chat.id;
  const data = q.data;
 
- // ---------- BUY MENU ----------
+ // ---------- BUY ----------
  if (data === "buy") {
 
   return bot.sendMessage(chatId, "💰 پلن‌ها:", {
@@ -109,75 +127,61 @@ bot.on("callback_query", async (q) => {
 
  }
 
- // ---------- CHECK EXISTING PAYMENT ----------
+ // ---------- BUY CHECK ----------
  if (data.startsWith("buy_")) {
 
-  const typeMap = {
+  const plans = {
    buy_2: { type: "2GB", amount: 340000 },
    buy_5: { type: "5GB", amount: 800000 },
    buy_10: { type: "10GB", amount: 1500000 }
   };
 
-  const plan = typeMap[data];
+  const plan = plans[data];
 
-  db.get(
-   `SELECT * FROM payments WHERE chat_id=?`,
-   [chatId],
-   async (err, row) => {
+  db.get(`SELECT * FROM payments WHERE chat_id=?`, [chatId], async (err, row) => {
 
-    // اگر لینک قبلی وجود دارد
-    if (row) {
-
-     return bot.sendMessage(chatId,
-      "⚠️ شما یک لینک پرداخت فعال دارید",
-      {
-       reply_markup: {
-        inline_keyboard: [
-         [{ text: "💳 ادامه پرداخت", url: row.pay_url }],
-         [{ text: "❌ لغو و ساخت جدید", callback_data: `renew_${data}` }]
-        ]
-       }
-      });
-
-    }
-
-    await createPayment(chatId, plan);
-
+   if (row) {
+    return bot.sendMessage(chatId,
+     "⚠️ پرداخت فعال دارید",
+     {
+      reply_markup: {
+       inline_keyboard: [
+        [{ text: "💳 ادامه پرداخت", url: row.pay_url }],
+        [{ text: "❌ ساخت جدید", callback_data: `renew_${data}` }]
+       ]
+      }
+     });
    }
-  );
+
+   await createPayment(chatId, plan);
+
+  });
 
  }
 
- // ---------- RENEW PAYMENT ----------
+ // ---------- RENEW ----------
  if (data.startsWith("renew_")) {
 
-  const planKey = data.replace("renew_", "");
-
-  const typeMap = {
-   buy_2: { type: "2GB", amount: 340000 },
-   buy_5: { type: "5GB", amount: 800000 },
-   buy_10: { type: "10GB", amount: 1500000 }
+  const plans = {
+   renew_buy_2: { type: "2GB", amount: 340000 },
+   renew_buy_5: { type: "5GB", amount: 800000 },
+   renew_buy_10: { type: "10GB", amount: 1500000 }
   };
-
-  const plan = typeMap[planKey];
 
   db.run(`DELETE FROM payments WHERE chat_id=?`, [chatId]);
 
-  await createPayment(chatId, plan);
+  await createPayment(chatId, plans[data]);
 
  }
 
 });
 
-// ================= PAYMENT FUNCTION =================
+// ================= CREATE PAYMENT =================
 
 async function createPayment(chatId, plan) {
 
  const orderId = `${chatId}_${Date.now()}`;
-
  const usd = Math.max(Math.round(plan.amount / 60000), 1);
-
- const crypto = "TON";
 
  try {
 
@@ -188,16 +192,11 @@ async function createPayment(chatId, plan) {
      api_key: process.env.PLISIO_SECRET_KEY,
      order_number: orderId,
      order_name: plan.type,
-
      source_currency: "USD",
      source_amount: usd,
-
-     currency: crypto,
-
+     currency: "TON",
      email: "test@test.com",
-
-     callback_url:
-      `https://${process.env.RAILWAY_STATIC_URL}/plisio`
+     callback_url: `https://${process.env.RAILWAY_STATIC_URL}/plisio`
     }
    }
   );
@@ -205,12 +204,12 @@ async function createPayment(chatId, plan) {
   const payUrl = response.data.data.invoice_url;
 
   db.run(
-   `INSERT OR REPLACE INTO payments(chat_id,order_id,pay_url,type)
-    VALUES(?,?,?,?)`,
-   [chatId, orderId, payUrl, plan.type]
+   `INSERT INTO payments(chat_id,order_id,pay_url,type,created_at)
+    VALUES(?,?,?,?,?)`,
+   [chatId, orderId, payUrl, plan.type, Date.now()]
   );
 
-  bot.sendMessage(chatId, "💳 پرداخت:", {
+  bot.sendMessage(chatId, "💳 پرداخت ایجاد شد (10 دقیقه اعتبار دارد)", {
    reply_markup: {
     inline_keyboard: [
      [{ text: "💰 پرداخت", url: payUrl }]
@@ -218,15 +217,80 @@ async function createPayment(chatId, plan) {
    }
   });
 
+  // auto delete message after 10 min
+  setTimeout(() => {
+   bot.sendMessage(chatId, "⏳ لینک پرداخت منقضی شد، دوباره بسازید");
+   db.run(`DELETE FROM payments WHERE chat_id=?`, [chatId]);
+  }, 10 * 60 * 1000);
+
  } catch (e) {
-
   console.log(e.response?.data || e.message);
-
-  bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
-
+  bot.sendMessage(chatId, "❌ خطا در پرداخت");
  }
 
 }
+
+// ================= CALLBACK VERIFY =================
+
+app.post("/plisio", (req, res) => {
+
+ const data = req.body;
+
+ if (data.status === "completed") {
+
+  db.get(`SELECT * FROM payments WHERE order_id=?`, [data.order_number], (err, pay) => {
+
+   if (!pay) return;
+
+   db.run(`INSERT INTO services(user_id,config) VALUES(?,?)`, [
+    pay.chat_id,
+    `🎉 سرویس فعال شد - پلن ${pay.type}`
+   ]);
+
+   db.run(`INSERT INTO sales(user_id,type,amount,time) VALUES(?,?,?,?)`, [
+    pay.chat_id,
+    pay.type,
+    1,
+    Date.now()
+   ]);
+
+   bot.sendMessage(pay.chat_id, "✅ پرداخت موفق - سرویس فعال شد");
+
+   db.run(`DELETE FROM payments WHERE order_id=?`, [data.order_number]);
+
+  });
+
+ }
+
+ res.sendStatus(200);
+
+});
+
+// ================= ADMIN PANEL =================
+
+bot.on("callback_query", (q) => {
+
+ const chatId = q.message.chat.id;
+
+ if (q.data === "admin" && chatId === ADMIN_ID) {
+
+  db.all(`SELECT * FROM sales`, [], (err, rows) => {
+
+   const total = rows.length;
+
+   bot.sendMessage(chatId,
+`📊 پنل ادمین
+
+💰 فروش کل: ${total}
+👤 کاربران فعال: -
+📦 سرویس‌ها: -`
+   );
+
+  });
+
+ }
+
+});
 
 // ================= SERVER =================
 
