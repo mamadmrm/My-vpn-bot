@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const TelegramBot = require("node-telegram-bot-api");
@@ -9,15 +8,13 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
- polling: false
-});
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
 
 const db = new sqlite3.Database("./database.db");
 
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
-// ================= DB =================
+// ================= DATABASE =================
 
 db.serialize(() => {
 
@@ -36,13 +33,14 @@ db.serialize(() => {
  db.run(`CREATE TABLE IF NOT EXISTS services (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
-  type TEXT,
-  config TEXT
+  config TEXT,
+  type TEXT
  )`);
 
  db.run(`CREATE TABLE IF NOT EXISTS payments (
   user_id INTEGER PRIMARY KEY,
   plan TEXT,
+  pay_url TEXT,
   created_at INTEGER
  )`);
 
@@ -88,19 +86,20 @@ bot.onText(/\/start/, (msg) => {
  db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
 
  bot.sendMessage(chatId,
-`سلام و درود به ربات VPN Mirza خوش آمدید
+`👋 خوش آمدید
 
-🔸 زمان سرویس ها نامحدود هست
-🔹 سرویس ها پایدار و سریع هستند
-🔸 تلاش تیم برای حفظ کیفیت اتصال کاربران`
+🔹 سرویس ها فعال و پایدار
+🔹 تحویل فوری بعد پرداخت`
  , menu(chatId));
 
 });
 
-// ================= TEXT =================
+// ================= STATE =================
 
 let adminMode = false;
 let adminType = "";
+
+// ================= MESSAGES =================
 
 bot.on("message", async (msg) => {
 
@@ -109,8 +108,7 @@ bot.on("message", async (msg) => {
 
  if (!text) return;
 
- // ---------------- BUY ----------------
-
+ // ---------- BUY ----------
  if (text === "🛒 خرید اشتراک") {
 
   return bot.sendMessage(chatId,
@@ -128,30 +126,26 @@ bot.on("message", async (msg) => {
 
  }
 
- // ---------------- FREE ----------------
-
+ // ---------- FREE ----------
  if (text === "🎁 تست رایگان") {
 
-  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, u) => {
+  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (e, u) => {
 
    if (u.free_used === 1)
-    return bot.sendMessage(chatId, "❌ قبلاً استفاده کردی");
+    return bot.sendMessage(chatId, "❌ قبلاً گرفتی");
 
-   db.get(`SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`, [], (e, cfg) => {
+   db.get(`SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`, [], (e, c) => {
 
-    if (!cfg)
+    if (!c)
      return bot.sendMessage(chatId, "❌ موجود نیست");
 
     db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-    db.run(`UPDATE configs SET used=1 WHERE id=?`, [cfg.id]);
+    db.run(`UPDATE configs SET used=1 WHERE id=?`, [c.id]);
 
-    db.run(`INSERT INTO services(user_id,type,config) VALUES(?,?,?)`, [
-     chatId,
-     "20MB TEST",
-     cfg.config
-    ]);
+    db.run(`INSERT INTO services(user_id,type,config) VALUES(?,?,?)`,
+     [chatId, "20MB", c.config]);
 
-    bot.sendMessage(chatId, "🎁 تست 20MB:\n\n" + cfg.config);
+    bot.sendMessage(chatId, "🎁 تست:\n\n" + c.config);
 
    });
 
@@ -159,8 +153,7 @@ bot.on("message", async (msg) => {
 
  }
 
- // ---------------- MY ----------------
-
+ // ---------- MY ----------
  if (text === "📦 سرویس های من") {
 
   db.all(`SELECT * FROM services WHERE user_id=?`, [chatId], (e, rows) => {
@@ -168,10 +161,10 @@ bot.on("message", async (msg) => {
    if (!rows.length)
     return bot.sendMessage(chatId, "خالیه");
 
-   let t = "سرویس های شما:\n\n";
+   let t = "سرویس ها:\n\n";
 
    rows.forEach(r => {
-    t += `${r.type}\n${r.config}\n\n`;
+    t += `🔹 ${r.type}\n${r.config}\n\n`;
    });
 
    bot.sendMessage(chatId, t);
@@ -180,41 +173,39 @@ bot.on("message", async (msg) => {
 
  }
 
- // ---------------- ADMIN ----------------
-
+ // ---------- ADMIN ----------
  if (text === "⚙️ مدیریت" && chatId === ADMIN_ID) {
 
   return bot.sendMessage(chatId,
-   "ارسال کن:\nadd 2GB / add FREE"
+`پنل:
+
+add 2GB
+add 5GB
+add 10GB
+add FREE`
   );
 
  }
 
- // ---------------- ADD MODE ----------------
-
+ // ---------- ADD ----------
  if (chatId === ADMIN_ID && text.startsWith("add ")) {
 
   adminType = text.replace("add ", "");
   adminMode = true;
 
   return bot.sendMessage(chatId,
-   "حالا کانفیگ ها رو بفرست (هر خط یکی)"
-  );
-
+   "ارسال کن (هر خط یک کانفیگ)");
  }
 
- // ---------------- SAVE CONFIG ----------------
-
+ // ---------- SAVE ----------
  if (adminMode && chatId === ADMIN_ID && text !== "done") {
 
   text.split("\n").forEach(line => {
 
    if (line.startsWith("vless://")) {
 
-    db.run(`INSERT INTO configs(type,config) VALUES(?,?)`, [
-     adminType,
-     line.trim()
-    ]);
+    db.run(`INSERT INTO configs(type,config) VALUES(?,?)`,
+     [adminType, line.trim()]);
 
    }
 
@@ -224,9 +215,8 @@ bot.on("message", async (msg) => {
 
  }
 
- if (text === "done" && chatId === ADMIN_ID) {
+ if (text === "done") {
   adminMode = false;
-  return bot.sendMessage(chatId, "تمام شد");
  }
 
 });
@@ -246,21 +236,20 @@ bot.on("callback_query", async (q) => {
 
  if (!plans[data]) return;
 
- const plan = plans[data];
+ db.get(`SELECT * FROM payments WHERE user_id=?`, [chatId], async (e, p) => {
 
- db.get(`SELECT * FROM payments WHERE user_id=?`, [chatId], async (e, old) => {
-
-  if (old) {
-   return bot.sendMessage(chatId, "لینک داری هنوز");
+  if (p) {
+   return bot.sendMessage(chatId,
+    "⚠️ هنوز لینک داری");
   }
 
-  createPay(chatId, plan);
+  createPay(chatId, plans[data]);
 
  });
 
 });
 
-// ================= CREATE PAY =================
+// ================= PAYMENT ENGINE =================
 
 async function createPay(chatId, plan) {
 
@@ -270,28 +259,32 @@ async function createPay(chatId, plan) {
    "https://api.plisio.net/api/v1/invoices/new",
    {
     params: {
+
      api_key: process.env.PLISIO_SECRET_KEY,
      order_name: plan.type,
      source_currency: "USD",
      source_amount: plan.usd,
-     currency: "TON"
+
+     // مهم برای TON + BNB
+     allowed_psys_cids: "BNB,TON"
     }
    }
   );
 
   const url = res.data?.data?.invoice_url;
 
-  db.run(`INSERT OR REPLACE INTO payments VALUES(?,?,?)`, [
-   chatId,
-   plan.type,
-   Date.now()
-  ]);
+  if (!url) return bot.sendMessage(chatId, "خطا پرداخت");
+
+  db.run(
+   `INSERT OR REPLACE INTO payments VALUES(?,?,?,?)`,
+   [chatId, plan.type, url, Date.now()]
+  );
 
   bot.sendMessage(chatId,
-   "پرداخت ساخته شد",
+   "💳 پرداخت ساخته شد (30 دقیقه)",
    {
     reply_markup: {
-     inline_keyboard: [[{ text: "PAY", url }]]
+     inline_keyboard: [[{ text: "پرداخت", url }]]
     }
    }
   );
@@ -302,7 +295,9 @@ async function createPay(chatId, plan) {
 
  } catch (e) {
 
-  bot.sendMessage(chatId, "خطا پرداخت");
+  console.log(e.response?.data || e.message);
+
+  bot.sendMessage(chatId, "❌ خطا در پرداخت");
  }
 
 }
@@ -310,5 +305,5 @@ async function createPay(chatId, plan) {
 // ================= RUN =================
 
 app.listen(process.env.PORT || 3000, () => {
- console.log("RUNNING");
+ console.log("V2 BOT RUNNING");
 });
