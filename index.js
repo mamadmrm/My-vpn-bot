@@ -19,7 +19,8 @@ const ADMIN_ID = Number(process.env.ADMIN_ID);
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY,
- free_used INTEGER DEFAULT 0
+ free_used INTEGER DEFAULT 0,
+ first_start INTEGER DEFAULT 0
 )
 `);
 
@@ -52,35 +53,63 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
  res.sendStatus(200);
 });
 
+// ================= PAYMENTS MEMORY =================
+
+let payments = {};
+
 // ================= START =================
 
 bot.onText(/\/start/, (msg) => {
 
  const chatId = msg.chat.id;
 
- db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
+ db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
- bot.sendMessage(chatId, "🌐 VPN Bot", {
-  reply_markup: {
-   inline_keyboard: [
-    [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
-    [{ text: "🎁 تست رایگان", callback_data: "free" }],
-    [{ text: "📦 سرویس‌های من", callback_data: "my" }],
+  if (!user) {
 
-    ...(chatId === ADMIN_ID
-      ? [[{ text: "⚙️ پنل مدیریت", callback_data: "admin" }]]
-      : [])
-   ]
+   db.run(
+    `INSERT INTO users(id, first_start) VALUES(?,1)`,
+    [chatId]
+   );
+
+   bot.sendMessage(chatId, `👋 سلام و درود به ربات VPN Mirza خوش آمدید
+
+🔸 زمان سرویس ها نامحدود هست 
+
+🔹 تعداد کاربر سرویس ها نامحدود هست
+
+🔸 سرویس ها با توجه به شرایط حال حاضر اینترنت دارن به فروش میرسن در حال حاضر در تمام کشور با قدرت متصل هست ولی تضمینی بر اتصال آن داده نمیشود ، تضمینی که میدیم اینکه مثل همیشه تمام تلاشمون رو برای حفظ اتصال شما انجام بدیم و هرکاری از دستمون بر میاد انجام بدیم 
+
+🔹 سرویس ها شامل بازگشت وجه نیستن در صورتی که شرایط به گونه ای باشد که کیفیت اتصال پایین یا قطع باشد مجموعه به کیف پولتون در ربات یا وجه واریز میکند یا این که حجم و زمان هدیه بهتون داده میشود
+`, {
+    reply_markup: {
+     inline_keyboard: [
+      [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
+      [{ text: "🎁 تست رایگان", callback_data: "free" }],
+      [{ text: "📦 سرویس‌های من", callback_data: "my" }]
+     ]
+    }
+   });
+
+  } else {
+
+   bot.sendMessage(chatId, "👋 خوش آمدید", {
+    reply_markup: {
+     inline_keyboard: [
+      [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
+      [{ text: "🎁 تست رایگان", callback_data: "free" }],
+      [{ text: "📦 سرویس‌های من", callback_data: "my" }]
+     ]
+    }
+   });
+
   }
+
  });
 
 });
 
-// ================= PAYMENTS MEMORY =================
-
-let payments = {};
-
-// ================= CALLBACK =================
+// ================= CALLBACKS =================
 
 bot.on("callback_query", async (q) => {
 
@@ -126,7 +155,6 @@ bot.on("callback_query", async (q) => {
 
    payments[orderId] = { chatId, type };
 
-   // 🔥 انتخاب شبکه: TON یا BNB
    const crypto = amount >= 5 ? "BNB" : "TON";
 
    const response = await axios.get(
@@ -171,7 +199,7 @@ bot.on("callback_query", async (q) => {
 
  }
 
- // ---------- FREE TEST ----------
+ // ---------- FREE ----------
 
  if (data === "free") {
 
@@ -191,7 +219,6 @@ bot.on("callback_query", async (q) => {
      if (!row) return bot.sendMessage(chatId, "❌ تست نداریم");
 
      db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-
      db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
 
      db.run(
