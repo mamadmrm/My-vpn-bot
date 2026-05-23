@@ -58,12 +58,19 @@ const WEBHOOK_URL =
 bot.setWebHook(WEBHOOK_URL);
 
 app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
+
  try {
+
   bot.processUpdate(req.body);
+
  } catch (e) {
+
   console.log(e.message);
+
  }
+
  res.sendStatus(200);
+
 });
 
 // ================= START =================
@@ -72,7 +79,11 @@ bot.onText(/\/start/, (msg) => {
 
  const chatId = msg.chat.id;
 
- db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
+ db.run(
+  `INSERT OR IGNORE INTO users(id)
+   VALUES(?)`,
+  [chatId]
+ );
 
  bot.sendMessage(chatId,
 `سلام و درود به ربات VPN Mirza خوش آمدید
@@ -82,7 +93,8 @@ bot.onText(/\/start/, (msg) => {
 🔹 تعداد کاربر سرویس ها نامحدود هست
 
 🔸 سرویس ها با توجه به شرایط حال حاضر اینترنت دارن به فروش میرسن در حال حاضر در تمام کشور با قدرت متصل هست ولی تضمینی بر اتصال آن داده نمیشود ، تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`
- , {
+ ,
+ {
   reply_markup: {
    inline_keyboard: [
 
@@ -102,10 +114,12 @@ bot.onText(/\/start/, (msg) => {
 
 });
 
-// ================= CALLBACK =================
+// ================= ADMIN =================
 
 let waitingAdmin = false;
 let waitingType = "";
+
+// ================= CALLBACK =================
 
 bot.on("callback_query", async (q) => {
 
@@ -121,9 +135,13 @@ bot.on("callback_query", async (q) => {
    {
     reply_markup: {
      inline_keyboard: [
+
       [{ text: "2GB - 340,000 تومان", callback_data: "buy_2" }],
+
       [{ text: "5GB - 800,000 تومان", callback_data: "buy_5" }],
+
       [{ text: "10GB - 1,500,000 تومان", callback_data: "buy_10" }]
+
      ]
     }
    }
@@ -131,26 +149,40 @@ bot.on("callback_query", async (q) => {
 
  }
 
- // ================= PAYMENT =================
+ // ================= BUY =================
 
  if (data.startsWith("buy_")) {
 
   const plans = {
-   buy_2: { type: "2GB", toman: 340000, usd: 2 },
-   buy_5: { type: "5GB", toman: 800000, usd: 4 },
-   buy_10: { type: "10GB", toman: 1500000, usd: 9 }
+
+   buy_2: {
+    type: "2GB",
+    usd: 2
+   },
+
+   buy_5: {
+    type: "5GB",
+    usd: 4
+   },
+
+   buy_10: {
+    type: "10GB",
+    usd: 9
+   }
+
   };
 
   const plan = plans[data];
 
   if (!plan) return;
 
-  // چک پرداخت قبلی
   db.get(
-   `SELECT * FROM payments WHERE chat_id=?`,
+   `SELECT * FROM payments
+    WHERE chat_id=?`,
    [chatId],
    async (err, oldPay) => {
 
+    // لینک فعال قبلی
     if (oldPay) {
 
      return bot.sendMessage(chatId,
@@ -181,12 +213,29 @@ bot.on("callback_query", async (q) => {
 
  if (data.startsWith("new_")) {
 
-  db.run(`DELETE FROM payments WHERE chat_id=?`, [chatId]);
+  db.run(
+   `DELETE FROM payments
+    WHERE chat_id=?`,
+   [chatId]
+  );
 
   const plans = {
-   new_buy_2: { type: "2GB", toman: 340000, usd: 2 },
-   new_buy_5: { type: "5GB", toman: 800000, usd: 4 },
-   new_buy_10: { type: "10GB", toman: 1500000, usd: 9 }
+
+   new_buy_2: {
+    type: "2GB",
+    usd: 2
+   },
+
+   new_buy_5: {
+    type: "5GB",
+    usd: 4
+   },
+
+   new_buy_10: {
+    type: "10GB",
+    usd: 9
+   }
+
   };
 
   await createPayment(chatId, plans[data]);
@@ -197,44 +246,82 @@ bot.on("callback_query", async (q) => {
 
  if (data === "free") {
 
-  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
+  db.get(
+   `SELECT * FROM users
+    WHERE id=?`,
+   [chatId],
+   (err, user) => {
 
-   if (!user) {
-    db.run(`INSERT INTO users(id,free_used) VALUES(?,0)`, [chatId]);
-    user = { free_used: 0 };
-   }
-
-   if (user.free_used === 1) {
-    return bot.sendMessage(chatId,
-     "❌ شما قبلاً تست رایگان دریافت کرده‌اید");
-   }
-
-   db.get(
-    `SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`,
-    [],
-    (err, row) => {
-
-     if (!row) {
-      return bot.sendMessage(chatId,
-       "❌ تست رایگان موجود نیست");
-     }
-
-     db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-
-     db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
+    if (!user) {
 
      db.run(
-      `INSERT INTO services(user_id,config) VALUES(?,?)`,
-      [chatId, row.config]
+      `INSERT INTO users(id,free_used)
+       VALUES(?,0)`,
+      [chatId]
      );
 
-     bot.sendMessage(chatId,
-      `🎁 تست رایگان شما:\n\n${row.config}`);
+     user = {
+      free_used: 0
+     };
 
     }
-   );
 
-  });
+    // فقط 1 بار
+    if (user.free_used === 1) {
+
+     return bot.sendMessage(chatId,
+      "❌ شما قبلاً تست رایگان دریافت کرده‌اید");
+
+    }
+
+    db.get(
+     `SELECT * FROM configs
+      WHERE type='FREE'
+      AND used=0
+      LIMIT 1`,
+     [],
+     (err, row) => {
+
+      if (!row) {
+
+       return bot.sendMessage(chatId,
+        "❌ تست رایگان موجود نیست");
+
+      }
+
+      db.run(
+       `UPDATE users
+        SET free_used=1
+        WHERE id=?`,
+       [chatId]
+      );
+
+      db.run(
+       `UPDATE configs
+        SET used=1
+        WHERE id=?`,
+       [row.id]
+      );
+
+      db.run(
+       `INSERT INTO services(user_id,config)
+        VALUES(?,?)`,
+       [chatId, row.config]
+      );
+
+      bot.sendMessage(chatId,
+`🎁 تست رایگان 20 گیگ شما:
+
+${row.config}
+
+⚠️ فقط جهت تست سرویس`
+      );
+
+     }
+    );
+
+   }
+  );
 
  }
 
@@ -243,13 +330,16 @@ bot.on("callback_query", async (q) => {
  if (data === "my") {
 
   db.all(
-   `SELECT * FROM services WHERE user_id=?`,
+   `SELECT * FROM services
+    WHERE user_id=?`,
    [chatId],
    (err, rows) => {
 
     if (!rows || rows.length === 0) {
+
      return bot.sendMessage(chatId,
       "❌ شما سرویسی ندارید");
+
     }
 
     let text = "📦 سرویس های شما:\n\n";
@@ -297,8 +387,9 @@ bot.on("callback_query", async (q) => {
 
  if (data.startsWith("add_") && chatId === ADMIN_ID) {
 
-  waitingType = data.replace("add_", "");
   waitingAdmin = true;
+
+  waitingType = data.replace("add_", "");
 
   return bot.sendMessage(chatId,
    `📥 کانفیگ ${waitingType} را ارسال کنید`);
@@ -319,12 +410,15 @@ bot.on("message", (msg) => {
  if (!msg.text) return;
 
  if (!msg.text.startsWith("vless://")) {
+
   return bot.sendMessage(chatId,
    "❌ کانفیگ باید با vless:// شروع شود");
+
  }
 
  db.run(
-  `INSERT INTO configs(type,config) VALUES(?,?)`,
+  `INSERT INTO configs(type,config)
+   VALUES(?,?)`,
   [waitingType, msg.text]
  );
 
@@ -341,37 +435,49 @@ async function createPayment(chatId, plan) {
 
  try {
 
-  const orderId = `${chatId}_${Date.now()}`;
+  const orderId =
+   `${chatId}_${Date.now()}`;
 
   const response = await axios.get(
    "https://api.plisio.net/api/v1/invoices/new",
    {
     params: {
-     api_key: process.env.PLISIO_SECRET_KEY,
 
-     order_number: orderId,
+     api_key:
+      process.env.PLISIO_SECRET_KEY,
 
-     order_name: plan.type,
+     order_number:
+      orderId,
 
-     source_currency: "USD",
+     order_name:
+      plan.type,
 
-     source_amount: plan.usd,
+     source_currency:
+      "USD",
 
-     currency: "TON",
+     source_amount:
+      plan.usd,
 
-     email: "test@test.com",
+     currency:
+      "USDT",
 
-     callback_url:
-      `https://${process.env.RAILWAY_STATIC_URL}/plisio`
+     email:
+      "test@test.com"
+
     }
    }
   );
 
-  const payUrl = response.data?.data?.invoice_url;
+  console.log(response.data);
+
+  const payUrl =
+   response.data?.data?.invoice_url;
 
   if (!payUrl) {
+
    return bot.sendMessage(chatId,
     "❌ خطا در ساخت لینک پرداخت");
+
   }
 
   db.run(
@@ -398,10 +504,14 @@ async function createPayment(chatId, plan) {
    }
   );
 
-  // حذف خودکار بعد 30 دقیقه
+  // حذف بعد 30 دقیقه
   setTimeout(() => {
 
-   db.run(`DELETE FROM payments WHERE chat_id=?`, [chatId]);
+   db.run(
+    `DELETE FROM payments
+     WHERE chat_id=?`,
+    [chatId]
+   );
 
    bot.sendMessage(chatId,
     "⌛ لینک پرداخت شما منقضی شد");
@@ -410,7 +520,9 @@ async function createPayment(chatId, plan) {
 
  } catch (e) {
 
-  console.log(e.response?.data || e.message);
+  console.log(
+   e.response?.data || e.message
+  );
 
   bot.sendMessage(chatId,
    "❌ خطا در پرداخت");
@@ -422,5 +534,7 @@ async function createPayment(chatId, plan) {
 // ================= SERVER =================
 
 app.listen(process.env.PORT || 3000, () => {
+
  console.log("BOT RUNNING");
+
 });
