@@ -93,24 +93,63 @@ bot.on('callback_query', (query) => {
 
  }
 
- if(data.startsWith('buy_')) {
+ if (data.startsWith('buy_')) {
 
+  let amount = 0;
   let type = '';
 
-  if(data === 'buy_2') type = '2GB';
-  if(data === 'buy_5') type = '5GB';
-  if(data === 'buy_10') type = '10GB';
+  if (data === 'buy_2') {
+    amount = 2;
+    type = '2GB';
+  }
 
-  db.get(
-   `SELECT * FROM configs WHERE type = ? AND used = 0 LIMIT 1`,
-   [type],
-   (err, row) => {
+  if (data === 'buy_5') {
+    amount = 4;
+    type = '5GB';
+  }
 
-    if(!row) {
-     return bot.sendMessage(chatId,
-      '❌ کانفیگ موجود نیست'
-     );
-    }
+  if (data === 'buy_10') {
+    amount = 9;
+    type = '10GB';
+  }
+
+  try {
+
+    const invoice = await axios.post(
+      "https://api.plisio.net/api/v1/invoices/new",
+      new URLSearchParams({
+        source_currency: "USD",
+        source_amount: amount.toString(),
+        order_number: `${data}_${Date.now()}`,
+        currency: "USDT",
+        email: "test@test.com",
+        callback_url: "https://YOUR-RAILWAY-URL.up.railway.app/webhook",
+        api_key: process.env.PLISIO_SECRET_KEY
+      }).toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+      }
+    );
+
+    const payUrl = invoice.data.data.invoice_url;
+
+    global[data] = { type };
+
+    bot.sendMessage(chatId, "💳 برای پرداخت روی دکمه زیر بزن:", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "💰 پرداخت", url: payUrl }]
+        ]
+      }
+    });
+
+  } catch (err) {
+    console.log(err.response?.data || err.message);
+    bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
+  }
+}
 
     db.run(
      `UPDATE configs SET used = 1 WHERE id = ?`,
