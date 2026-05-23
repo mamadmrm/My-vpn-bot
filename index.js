@@ -8,7 +8,12 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const bot = new TelegramBot(process.env.BOT_TOKEN);
+// ================= BOT =================
+
+const bot = new TelegramBot(
+ process.env.BOT_TOKEN,
+ { polling: false }
+);
 
 const db = new sqlite3.Database("./database.db");
 
@@ -43,9 +48,7 @@ CREATE TABLE IF NOT EXISTS services (
 db.run(`
 CREATE TABLE IF NOT EXISTS payments (
  chat_id INTEGER PRIMARY KEY,
- order_id TEXT,
  pay_url TEXT,
- type TEXT,
  created_at INTEGER
 )
 `);
@@ -73,9 +76,14 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
 
 });
 
+// ================= ADMIN STATE =================
+
+let waitingAdmin = false;
+let waitingType = "";
+
 // ================= START =================
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
 
  const chatId = msg.chat.id;
 
@@ -96,39 +104,38 @@ bot.onText(/\/start/, (msg) => {
  ,
  {
   reply_markup: {
-   inline_keyboard: [
+   keyboard: [
 
-    [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
+    ["🛒 خرید اشتراک"],
 
-    [{ text: "🎁 تست رایگان", callback_data: "free" }],
+    ["🎁 تست رایگان"],
 
-    [{ text: "📦 سرویس های من", callback_data: "my" }],
+    ["📦 سرویس های من"],
 
     ...(chatId === ADMIN_ID
-      ? [[{ text: "⚙️ پنل مدیریت", callback_data: "admin" }]]
+      ? [["⚙️ پنل مدیریت"]]
       : [])
 
-   ]
+   ],
+   resize_keyboard: true
   }
  });
 
 });
 
-// ================= ADMIN =================
+// ================= TEXT BUTTONS =================
 
-let waitingAdmin = false;
-let waitingType = "";
+bot.on("message", async (msg) => {
 
-// ================= CALLBACK =================
+ const chatId = msg.chat.id;
 
-bot.on("callback_query", async (q) => {
+ const text = msg.text;
 
- const chatId = q.message.chat.id;
- const data = q.data;
+ if (!text) return;
 
  // ================= BUY MENU =================
 
- if (data === "buy") {
+ if (text === "🛒 خرید اشتراک") {
 
   return bot.sendMessage(chatId,
    "💰 انتخاب پلن:",
@@ -149,102 +156,9 @@ bot.on("callback_query", async (q) => {
 
  }
 
- // ================= BUY =================
-
- if (data.startsWith("buy_")) {
-
-  const plans = {
-
-   buy_2: {
-    type: "2GB",
-    usd: 2
-   },
-
-   buy_5: {
-    type: "5GB",
-    usd: 4
-   },
-
-   buy_10: {
-    type: "10GB",
-    usd: 9
-   }
-
-  };
-
-  const plan = plans[data];
-
-  if (!plan) return;
-
-  db.get(
-   `SELECT * FROM payments
-    WHERE chat_id=?`,
-   [chatId],
-   async (err, oldPay) => {
-
-    // لینک فعال قبلی
-    if (oldPay) {
-
-     return bot.sendMessage(chatId,
-      "⚠️ شما یک لینک پرداخت فعال دارید",
-      {
-       reply_markup: {
-        inline_keyboard: [
-
-         [{ text: "💳 ادامه پرداخت", url: oldPay.pay_url }],
-
-         [{ text: "❌ حذف لینک قبلی", callback_data: `new_${data}` }]
-
-        ]
-       }
-      }
-     );
-
-    }
-
-    await createPayment(chatId, plan);
-
-   }
-  );
-
- }
-
- // ================= NEW PAYMENT =================
-
- if (data.startsWith("new_")) {
-
-  db.run(
-   `DELETE FROM payments
-    WHERE chat_id=?`,
-   [chatId]
-  );
-
-  const plans = {
-
-   new_buy_2: {
-    type: "2GB",
-    usd: 2
-   },
-
-   new_buy_5: {
-    type: "5GB",
-    usd: 4
-   },
-
-   new_buy_10: {
-    type: "10GB",
-    usd: 9
-   }
-
-  };
-
-  await createPayment(chatId, plans[data]);
-
- }
-
  // ================= FREE TEST =================
 
- if (data === "free") {
+ if (text === "🎁 تست رایگان") {
 
   db.get(
    `SELECT * FROM users
@@ -260,9 +174,7 @@ bot.on("callback_query", async (q) => {
       [chatId]
      );
 
-     user = {
-      free_used: 0
-     };
+     user = { free_used: 0 };
 
     }
 
@@ -310,7 +222,7 @@ bot.on("callback_query", async (q) => {
       );
 
       bot.sendMessage(chatId,
-`🎁 تست رایگان 20 گیگ شما:
+`🎁 تست رایگان 20 مگ شما:
 
 ${row.config}
 
@@ -327,7 +239,7 @@ ${row.config}
 
  // ================= MY SERVICES =================
 
- if (data === "my") {
+ if (text === "📦 سرویس های من") {
 
   db.all(
    `SELECT * FROM services
@@ -342,16 +254,16 @@ ${row.config}
 
     }
 
-    let text = "📦 سرویس های شما:\n\n";
+    let txt = "📦 سرویس های شما:\n\n";
 
     rows.forEach((r, i) => {
 
-     text += `🔹 سرویس ${i + 1}\n`;
-     text += `${r.config}\n\n`;
+     txt += `🔹 سرویس ${i + 1}\n`;
+     txt += `${r.config}\n\n`;
 
     });
 
-    bot.sendMessage(chatId, text);
+    bot.sendMessage(chatId, txt);
 
    }
   );
@@ -360,83 +272,192 @@ ${row.config}
 
  // ================= ADMIN PANEL =================
 
- if (data === "admin" && chatId === ADMIN_ID) {
+ if (text === "⚙️ پنل مدیریت" &&
+     chatId === ADMIN_ID) {
 
   return bot.sendMessage(chatId,
-   "⚙️ پنل مدیریت",
-   {
-    reply_markup: {
-     inline_keyboard: [
+`⚙️ پنل مدیریت
 
-      [{ text: "➕ افزودن 2GB", callback_data: "add_2GB" }],
+➕ افزودن کانفیگ:
+2GB
+5GB
+10GB
+FREE
 
-      [{ text: "➕ افزودن 5GB", callback_data: "add_5GB" }],
-
-      [{ text: "➕ افزودن 10GB", callback_data: "add_10GB" }],
-
-      [{ text: "➕ افزودن FREE", callback_data: "add_FREE" }]
-
-     ]
-    }
-   }
+📥 مثال:
+add 2GB
+add FREE`
   );
 
  }
 
- // ================= ADD CONFIG =================
+ // ================= ADMIN ADD =================
 
- if (data.startsWith("add_") && chatId === ADMIN_ID) {
+ if (
+  chatId === ADMIN_ID &&
+  text.startsWith("add ")
+ ) {
 
   waitingAdmin = true;
 
-  waitingType = data.replace("add_", "");
+  waitingType =
+   text.replace("add ", "").trim();
 
   return bot.sendMessage(chatId,
-   `📥 کانفیگ ${waitingType} را ارسال کنید`);
+`📥 حالا همه کانفیگ های ${waitingType}
+را پشت سر هم ارسال کن
+
+هر خط = یک کانفیگ
+
+وقتی تمام شد:
+done`
+  );
+
+ }
+
+ // ================= RECEIVE CONFIGS =================
+
+ if (
+  waitingAdmin &&
+  chatId === ADMIN_ID &&
+  text !== "done"
+ ) {
+
+  const lines =
+   text.split("\n");
+
+  let count = 0;
+
+  lines.forEach(cfg => {
+
+   if (
+    cfg.trim().startsWith("vless://")
+   ) {
+
+    db.run(
+     `INSERT INTO configs(type,config)
+      VALUES(?,?)`,
+     [
+      waitingType,
+      cfg.trim()
+     ]
+    );
+
+    count++;
+
+   }
+
+  });
+
+  return bot.sendMessage(chatId,
+   `✅ ${count} کانفیگ ذخیره شد`);
+ }
+
+ // ================= DONE =================
+
+ if (
+  waitingAdmin &&
+  chatId === ADMIN_ID &&
+  text === "done"
+ ) {
+
+  waitingAdmin = false;
+  waitingType = "";
+
+  return bot.sendMessage(chatId,
+   "✅ افزودن کانفیگ تمام شد");
  }
 
 });
 
-// ================= ADMIN RECEIVE CONFIG =================
+// ================= PAYMENT CALLBACK =================
 
-bot.on("message", (msg) => {
+bot.on("callback_query", async (q) => {
 
- const chatId = msg.chat.id;
+ const chatId = q.message.chat.id;
 
- if (chatId !== ADMIN_ID) return;
+ const data = q.data;
 
- if (!waitingAdmin) return;
+ // ================= BUY =================
 
- if (!msg.text) return;
+ if (!data.startsWith("buy_"))
+  return;
 
- if (!msg.text.startsWith("vless://")) {
+ const plans = {
 
-  return bot.sendMessage(chatId,
-   "❌ کانفیگ باید با vless:// شروع شود");
+  buy_2: {
+   type: "2GB",
+   amount: 2
+  },
+
+  buy_5: {
+   type: "5GB",
+   amount: 4
+  },
+
+  buy_10: {
+   type: "10GB",
+   amount: 9
+  }
+
+ };
+
+ const plan = plans[data];
+
+ if (!plan) return;
+
+ // لینک قبلی
+ db.get(
+  `SELECT * FROM payments
+   WHERE chat_id=?`,
+  [chatId],
+  async (err, oldPay) => {
+
+   if (oldPay) {
+
+    return bot.sendMessage(chatId,
+`⚠️ شما یک لینک پرداخت فعال دارید
+
+⏰ اعتبار:
+30 دقیقه`
+     ,
+     {
+      reply_markup: {
+       inline_keyboard: [
+
+        [{ text: "💳 ادامه پرداخت", url: oldPay.pay_url }],
+
+        [{ text: "❌ حذف و ساخت جدید", callback_data: `new_${data}` }]
+
+       ]
+      }
+     });
+
+   }
+
+   await createPayment(chatId, plan);
+
+  });
+
+ // ================= NEW LINK =================
+
+ if (data.startsWith("new_")) {
+
+  db.run(
+   `DELETE FROM payments
+    WHERE chat_id=?`,
+   [chatId]
+  );
 
  }
 
- db.run(
-  `INSERT INTO configs(type,config)
-   VALUES(?,?)`,
-  [waitingType, msg.text]
- );
-
- waitingAdmin = false;
-
- bot.sendMessage(chatId,
-  `✅ کانفیگ ${waitingType} ذخیره شد`);
-
 });
 
-// ================= CREATE PAYMENT =================
+// ================= PAYMENT FUNCTION =================
 
 async function createPayment(chatId, plan) {
 
  try {
-
-  const orderId =
-   `${chatId}_${Date.now()}`;
 
   const response = await axios.get(
    "https://api.plisio.net/api/v1/invoices/new",
@@ -446,9 +467,6 @@ async function createPayment(chatId, plan) {
      api_key:
       process.env.PLISIO_SECRET_KEY,
 
-     order_number:
-      orderId,
-
      order_name:
       plan.type,
 
@@ -456,13 +474,10 @@ async function createPayment(chatId, plan) {
       "USD",
 
      source_amount:
-      plan.usd,
+      plan.amount,
 
      currency:
-      "USDT",
-
-     email:
-      "test@test.com"
+      "USDT"
 
     }
    }
@@ -476,33 +491,34 @@ async function createPayment(chatId, plan) {
   if (!payUrl) {
 
    return bot.sendMessage(chatId,
-    "❌ خطا در ساخت لینک پرداخت");
+    "❌ خطا در ساخت پرداخت");
 
   }
 
   db.run(
    `INSERT OR REPLACE INTO payments
-    (chat_id,order_id,pay_url,type,created_at)
-    VALUES(?,?,?,?,?)`,
+    (chat_id,pay_url,created_at)
+    VALUES(?,?,?)`,
    [
     chatId,
-    orderId,
     payUrl,
-    plan.type,
     Date.now()
    ]
   );
 
   bot.sendMessage(chatId,
-   "💳 لینک پرداخت ساخته شد\n⏰ اعتبار لینک: 30 دقیقه",
-   {
-    reply_markup: {
-     inline_keyboard: [
-      [{ text: "💰 پرداخت", url: payUrl }]
-     ]
-    }
+`💳 لینک پرداخت ساخته شد
+
+⏰ اعتبار:
+30 دقیقه`
+  ,
+  {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "💰 پرداخت", url: payUrl }]
+    ]
    }
-  );
+  });
 
   // حذف بعد 30 دقیقه
   setTimeout(() => {
@@ -533,8 +549,10 @@ async function createPayment(chatId, plan) {
 
 // ================= SERVER =================
 
-app.listen(process.env.PORT || 3000, () => {
+app.listen(
+ process.env.PORT || 3000,
+ () => {
 
- console.log("BOT RUNNING");
+  console.log("BOT RUNNING");
 
-});
+ });
