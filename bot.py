@@ -12,7 +12,7 @@ ADMIN_ID = 489450312
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# دیتابیس پیشرفته برای ذخیره سرویس‌ها
+# دیتابیس
 db = sqlite3.connect('database.db', check_same_thread=False)
 db.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, has_test INTEGER DEFAULT 0)')
 db.execute('CREATE TABLE IF NOT EXISTS services (user_id INTEGER, plan TEXT, link TEXT)')
@@ -23,44 +23,42 @@ def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row('🛒 خرید اشتراک', '🎁 دریافت تست رایگان', '📁 سرویس‌های من')
     if message.chat.id == ADMIN_ID: markup.add('⚙️ پنل مدیریت')
-    bot.send_message(message.chat.id, "خوش آمدید!", reply_markup=markup)
+    bot.send_message(message.chat.id, "سلام! به ربات VPN خوش آمدید.", reply_markup=markup)
 
-# --- سیستم خرید و تست ---
 @bot.message_handler(func=lambda m: m.text == '🎁 دریافت تست رایگان')
 def get_test(message):
     user = db.execute('SELECT has_test FROM users WHERE user_id = ?', (message.chat.id,)).fetchone()
     if user and user[0] == 1:
-        bot.send_message(message.chat.id, "❌ شما قبلاً تست دریافت کرده‌اید.")
+        bot.send_message(message.chat.id, "❌ شما قبلاً تست رایگان دریافت کرده‌اید.")
     else:
-        # ساخت کانفیگ تست (اینجا لینک Vmess خودت را بگذار)
-        test_link = "vmess://تست_۲۰_مگابایتی_شما"
+        test_link = "vmess://کانفیگ_تست_شما"
         db.execute('INSERT INTO services (user_id, plan, link) VALUES (?, ?, ?)', (message.chat.id, 'تست رایگان', test_link))
         db.execute('INSERT OR REPLACE INTO users (user_id, has_test) VALUES (?, 1)', (message.chat.id, 1))
         db.commit()
-        bot.send_message(message.chat.id, f"✅ کانفیگ تست شما ساخته شد:\n`{test_link}`", parse_mode='Markdown')
+        bot.send_message(message.chat.id, f"✅ کانفیگ تست برای شما ساخته شد:\n`{test_link}`", parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: m.text == '📁 سرویس‌های من')
 def my_services(message):
     services = db.execute('SELECT plan, link FROM services WHERE user_id = ?', (message.chat.id,)).fetchall()
     if not services:
-        bot.send_message(message.chat.id, "⚠️ هیچ سرویس فعالی برای شما پیدا نشد.")
+        bot.send_message(message.chat.id, "⚠️ هیچ سرویس فعالی پیدا نشد.")
     else:
-        msg = "📂 سرویس‌های شما:\n"
-        for s in services: msg += f"پلن: {s[0]}\nلینک: `{s[1]}`\n\n"
-        bot.send_message(message.chat.id, msg, parse_mode='Markdown')
+        for s in services:
+            bot.send_message(message.chat.id, f"پلن: {s[0]}\nلینک: `{s[1]}`", parse_mode='Markdown')
 
-# --- بخش خرید پلسیو ---
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def handle_payment(call):
-    plan = call.data.split("_")[1]
-    # منطق درخواست به پلسیو (همان کد قبلی)
-    # بعد از پرداخت موفق و تایید پلسیو، باید در دیتابیس سرویس را اضافه کنی:
-    # db.execute('INSERT INTO services (user_id, plan, link) VALUES (?, ?, ?)', (call.message.chat.id, plan, "لینک_خریداری_شده"))
+@app.route('/' + TOKEN, methods=['POST'])
+def webhook():
+    json_update = request.get_json()
+    bot.process_new_updates([telebot.types.Update.de_json(json_update)])
+    return "OK", 200
 
-# --- پنل مدیریت ---
-@bot.message_handler(func=lambda m: m.text == '⚙️ پنل مدیریت' and m.chat.id == ADMIN_ID)
-def admin(message):
-    bot.send_message(message.chat.id, "پنل مدیریت فعال است.\nتعداد کاربران تست‌گیرنده: " + str(db.execute('SELECT COUNT(*) FROM users WHERE has_test=1').fetchone()[0]))
+@app.route('/')
+def home():
+    return "Bot is running"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    # تنظیم مجدد وب‌هوک در هر بار اجرا
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
