@@ -62,9 +62,9 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
  res.sendStatus(200);
 });
 
-// ================= KEYBOARD MENU (NEW) =================
+// ================= UI =================
 
-const mainMenu = {
+const menu = {
  keyboard: [
   ["🛒 خرید اشتراک", "🎁 تست رایگان"],
   ["📦 سرویس‌های من"]
@@ -78,28 +78,26 @@ bot.onText(/\/start/, (msg) => {
 
  const chatId = msg.chat.id;
 
- db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
+ db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
 
-  if (!user) {
-   db.run(`INSERT INTO users(id) VALUES(?)`, [chatId]);
-  }
-
-  bot.sendMessage(chatId, "👋 خوش آمدید", {
-   reply_markup: mainMenu
-  });
-
+ bot.sendMessage(chatId, "👋 خوش آمدید", {
+  reply_markup: menu
  });
 
 });
 
-// ================= TEXT BUTTONS =================
+// ================= TEXT HANDLER =================
 
 bot.on("message", async (msg) => {
 
  const chatId = msg.chat.id;
  const text = msg.text;
 
+ if (!text) return;
+
+ // ---------- BUY ----------
  if (text === "🛒 خرید اشتراک") {
+
   return bot.sendMessage(chatId, "💰 پلن‌ها:", {
    reply_markup: {
     inline_keyboard: [
@@ -109,57 +107,48 @@ bot.on("message", async (msg) => {
     ]
    }
   });
+
  }
 
- // ---------- FREE TEST FIX ----------
+ // ---------- FREE ----------
  if (text === "🎁 تست رایگان") {
 
   db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
-   if (user.free_used === 1)
+   if (!user) return;
+
+   if (user.free_used === 1) {
     return bot.sendMessage(chatId, "❌ قبلاً تست گرفتی");
+   }
 
-   db.get(
-    `SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`,
-    [],
-    (err, row) => {
+   db.get(`SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`, [], (err, row) => {
 
-     if (!row)
-      return bot.sendMessage(chatId, "❌ تست نداریم");
+    if (!row) return bot.sendMessage(chatId, "❌ تست نداریم");
 
-     db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-     db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
+    db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
+    db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
 
-     db.run(`INSERT INTO services(user_id,config) VALUES(?,?)`,
-      [chatId, row.config]
-     );
+    db.run(`INSERT INTO services(user_id,config) VALUES(?,?)`, [chatId, row.config]);
 
-     sendConfigWithQR(chatId, row.config);
+    sendConfig(chatId, row.config);
 
-    }
-   );
+   });
 
   });
 
  }
 
- // ---------- MY SERVICES FIX ----------
+ // ---------- MY ----------
  if (text === "📦 سرویس‌های من") {
 
-  db.all(
-   `SELECT * FROM services WHERE user_id=?`,
-   [chatId],
-   (err, rows) => {
+  db.all(`SELECT * FROM services WHERE user_id=?`, [chatId], (err, rows) => {
 
-    if (!rows.length)
-     return bot.sendMessage(chatId, "❌ سرویسی نداری");
+   if (!rows.length)
+    return bot.sendMessage(chatId, "❌ سرویسی نداری");
 
-    rows.forEach(r => {
-     sendConfigWithQR(chatId, r.config);
-    });
+   rows.forEach(r => sendConfig(chatId, r.config));
 
-   }
-  );
+  });
 
  }
 
@@ -172,15 +161,19 @@ bot.on("callback_query", async (q) => {
  const chatId = q.message.chat.id;
  const data = q.data;
 
- if (data.startsWith("buy_")) {
+ if (!data.startsWith("buy_")) return;
 
-  const plans = {
-   buy_2: { type: "2GB", amount: 340000 },
-   buy_5: { type: "5GB", amount: 800000 },
-   buy_10: { type: "10GB", amount: 1500000 }
-  };
+ const plans = {
+  buy_2: { type: "2GB", amount: 340000 },
+  buy_5: { type: "5GB", amount: 800000 },
+  buy_10: { type: "10GB", amount: 1500000 }
+ };
 
-  const plan = plans[data];
+ const plan = plans[data];
+
+ if (!plan) return;
+
+ try {
 
   const orderId = `${chatId}_${Date.now()}`;
   const usd = Math.max(Math.round(plan.amount / 60000), 1);
@@ -201,9 +194,13 @@ bot.on("callback_query", async (q) => {
    }
   );
 
-  const payUrl = response.data.data.invoice_url;
+  const payUrl = response.data?.data?.invoice_url;
 
-  bot.sendMessage(chatId, "💳 پرداخت:", {
+  if (!payUrl) {
+   return bot.sendMessage(chatId, "❌ خطا در ساخت لینک پرداخت");
+  }
+
+  bot.sendMessage(chatId, "💳 لینک پرداخت:", {
    reply_markup: {
     inline_keyboard: [
      [{ text: "💰 پرداخت", url: payUrl }]
@@ -211,25 +208,28 @@ bot.on("callback_query", async (q) => {
    }
   });
 
+ } catch (e) {
+  console.log(e.message);
+  bot.sendMessage(chatId, "❌ خطا در پرداخت");
  }
 
 });
 
-// ================= QR + SEND CONFIG =================
+// ================= QR FUNCTION =================
 
-async function sendConfigWithQR(chatId, config) {
+async function sendConfig(chatId, config) {
 
  try {
 
   const qr = await QRCode.toBuffer(config);
 
-  bot.sendPhoto(chatId, qr, {
+  return bot.sendPhoto(chatId, qr, {
    caption: "📦 کانفیگ شما:\n\n" + config
   });
 
- } catch (e) {
+ } catch {
 
-  bot.sendMessage(chatId, "📦 کانفیگ:\n\n" + config);
+  return bot.sendMessage(chatId, "📦 کانفیگ:\n\n" + config);
 
  }
 
