@@ -19,8 +19,7 @@ const ADMIN_ID = Number(process.env.ADMIN_ID);
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY,
- free_used INTEGER DEFAULT 0,
- first_start INTEGER DEFAULT 0
+ free_used INTEGER DEFAULT 0
 )
 `);
 
@@ -41,6 +40,15 @@ CREATE TABLE IF NOT EXISTS services (
 )
 `);
 
+db.run(`
+CREATE TABLE IF NOT EXISTS payments (
+ chat_id INTEGER PRIMARY KEY,
+ order_id TEXT,
+ pay_url TEXT,
+ type TEXT
+)
+`);
+
 // ================= WEBHOOK =================
 
 const WEBHOOK_URL =
@@ -53,10 +61,6 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
  res.sendStatus(200);
 });
 
-// ================= PAYMENTS =================
-
-let payments = {};
-
 // ================= START =================
 
 bot.onText(/\/start/, (msg) => {
@@ -66,31 +70,18 @@ bot.onText(/\/start/, (msg) => {
  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
   if (!user) {
-   db.run(`INSERT INTO users(id, first_start) VALUES(?,1)`, [chatId]);
-
-   bot.sendMessage(chatId, `👋 خوش آمدید به VPN Mirza`, {
-    reply_markup: {
-     inline_keyboard: [
-      [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
-      [{ text: "🎁 تست رایگان", callback_data: "free" }],
-      [{ text: "📦 سرویس‌های من", callback_data: "my" }]
-     ]
-    }
-   });
-
-  } else {
-
-   bot.sendMessage(chatId, "👋 خوش آمدید", {
-    reply_markup: {
-     inline_keyboard: [
-      [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
-      [{ text: "🎁 تست رایگان", callback_data: "free" }],
-      [{ text: "📦 سرویس‌های من", callback_data: "my" }]
-     ]
-    }
-   });
-
+   db.run(`INSERT INTO users(id) VALUES(?)`, [chatId]);
   }
+
+  bot.sendMessage(chatId, "👋 خوش آمدید", {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "🛒 خرید اشتراک", callback_data: "buy" }],
+     [{ text: "🎁 تست رایگان", callback_data: "free" }],
+     [{ text: "📦 سرویس‌های من", callback_data: "my" }]
+    ]
+   }
+  });
 
  });
 
@@ -106,144 +97,136 @@ bot.on("callback_query", async (q) => {
  // ---------- BUY MENU ----------
  if (data === "buy") {
 
-  return bot.sendMessage(chatId, "💰 پلن‌ها (تومان):", {
+  return bot.sendMessage(chatId, "💰 پلن‌ها:", {
    reply_markup: {
     inline_keyboard: [
-     [{ text: "2GB - 340,000 تومان", callback_data: "buy_2" }],
-     [{ text: "5GB - 800,000 تومان", callback_data: "buy_5" }],
-     [{ text: "10GB - 1,500,000 تومان", callback_data: "buy_10" }]
+     [{ text: "2GB - 340k", callback_data: "buy_2" }],
+     [{ text: "5GB - 800k", callback_data: "buy_5" }],
+     [{ text: "10GB - 1.5M", callback_data: "buy_10" }]
     ]
    }
   });
 
  }
 
- // ---------- BUY LOGIC ----------
+ // ---------- CHECK EXISTING PAYMENT ----------
  if (data.startsWith("buy_")) {
 
-  let amount = 340000;
-  let type = "2GB";
+  const typeMap = {
+   buy_2: { type: "2GB", amount: 340000 },
+   buy_5: { type: "5GB", amount: 800000 },
+   buy_10: { type: "10GB", amount: 1500000 }
+  };
 
-  if (data === "buy_5") {
-   amount = 800000;
-   type = "5GB";
-  }
+  const plan = typeMap[data];
 
-  if (data === "buy_10") {
-   amount = 1500000;
-   type = "10GB";
-  }
-
-  try {
-
-   const orderId = `${chatId}_${Date.now()}`;
-
-   payments[orderId] = { chatId, type };
-
-   // ⚠️ Plisio: USD باید باشه، پس تبدیل تقریبی تومان به دلار
-   const usd = Math.max(Math.round(amount / 60000), 1);
-
-   // TON برای همه پلن‌ها (پایدارتر از BNB)
-   const currency = "TON";
-
-   const response = await axios.get(
-    "https://api.plisio.net/api/v1/invoices/new",
-    {
-     params: {
-      api_key: process.env.PLISIO_SECRET_KEY,
-      order_number: orderId,
-      order_name: type,
-
-      source_currency: "USD",
-      source_amount: usd,
-
-      currency: currency,
-
-      email: "test@test.com",
-
-      callback_url: `https://${process.env.RAILWAY_STATIC_URL}/plisio`
-     }
-    }
-   );
-
-   if (!response.data || response.data.status !== "success") {
-    console.log("PLISIO ERROR:", response.data);
-    return bot.sendMessage(chatId, "❌ خطا در ساخت لینک پرداخت");
-   }
-
-   const payUrl = response.data.data.invoice_url;
-
-   bot.sendMessage(chatId, `💳 پرداخت (${currency})`, {
-    reply_markup: {
-     inline_keyboard: [
-      [{ text: "💰 پرداخت", url: payUrl }]
-     ]
-    }
-   });
-
-  } catch (e) {
-   console.log(e.response?.data || e.message);
-   bot.sendMessage(chatId, "❌ خطا در پرداخت");
-  }
-
- }
-
- // ---------- FREE ----------
- if (data === "free") {
-
-  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
-
-   if (!user) return;
-
-   if (user.free_used === 1)
-    return bot.sendMessage(chatId, "❌ قبلاً تست گرفتی");
-
-   db.get(
-    `SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`,
-    [],
-    (err, row) => {
-
-     if (!row)
-      return bot.sendMessage(chatId, "❌ تست نداریم");
-
-     db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-     db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
-
-     db.run(
-      `INSERT INTO services(user_id,config) VALUES(?,?)`,
-      [chatId, row.config]
-     );
-
-     bot.sendMessage(chatId, `🎁 تست:\n\n${row.config}`);
-
-    }
-   );
-
-  });
-
- }
-
- // ---------- MY ----------
- if (data === "my") {
-
-  db.all(
-   `SELECT * FROM services WHERE user_id=?`,
+  db.get(
+   `SELECT * FROM payments WHERE chat_id=?`,
    [chatId],
-   (err, rows) => {
+   async (err, row) => {
 
-    if (!rows.length)
-     return bot.sendMessage(chatId, "❌ سرویسی نداری");
+    // اگر لینک قبلی وجود دارد
+    if (row) {
 
-    rows.forEach(r => {
-     bot.sendMessage(chatId, r.config);
-    });
+     return bot.sendMessage(chatId,
+      "⚠️ شما یک لینک پرداخت فعال دارید",
+      {
+       reply_markup: {
+        inline_keyboard: [
+         [{ text: "💳 ادامه پرداخت", url: row.pay_url }],
+         [{ text: "❌ لغو و ساخت جدید", callback_data: `renew_${data}` }]
+        ]
+       }
+      });
+
+    }
+
+    await createPayment(chatId, plan);
 
    }
   );
 
  }
 
+ // ---------- RENEW PAYMENT ----------
+ if (data.startsWith("renew_")) {
+
+  const planKey = data.replace("renew_", "");
+
+  const typeMap = {
+   buy_2: { type: "2GB", amount: 340000 },
+   buy_5: { type: "5GB", amount: 800000 },
+   buy_10: { type: "10GB", amount: 1500000 }
+  };
+
+  const plan = typeMap[planKey];
+
+  db.run(`DELETE FROM payments WHERE chat_id=?`, [chatId]);
+
+  await createPayment(chatId, plan);
+
+ }
+
 });
+
+// ================= PAYMENT FUNCTION =================
+
+async function createPayment(chatId, plan) {
+
+ const orderId = `${chatId}_${Date.now()}`;
+
+ const usd = Math.max(Math.round(plan.amount / 60000), 1);
+
+ const crypto = "TON";
+
+ try {
+
+  const response = await axios.get(
+   "https://api.plisio.net/api/v1/invoices/new",
+   {
+    params: {
+     api_key: process.env.PLISIO_SECRET_KEY,
+     order_number: orderId,
+     order_name: plan.type,
+
+     source_currency: "USD",
+     source_amount: usd,
+
+     currency: crypto,
+
+     email: "test@test.com",
+
+     callback_url:
+      `https://${process.env.RAILWAY_STATIC_URL}/plisio`
+    }
+   }
+  );
+
+  const payUrl = response.data.data.invoice_url;
+
+  db.run(
+   `INSERT OR REPLACE INTO payments(chat_id,order_id,pay_url,type)
+    VALUES(?,?,?,?)`,
+   [chatId, orderId, payUrl, plan.type]
+  );
+
+  bot.sendMessage(chatId, "💳 پرداخت:", {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "💰 پرداخت", url: payUrl }]
+    ]
+   }
+  });
+
+ } catch (e) {
+
+  console.log(e.response?.data || e.message);
+
+  bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
+
+ }
+
+}
 
 // ================= SERVER =================
 
