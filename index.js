@@ -8,10 +8,10 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// ⚠️ مهم: polling خاموش (فقط webhook)
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
-
+const bot = new TelegramBot(process.env.BOT_TOKEN);
 const db = new sqlite3.Database("./database.db");
+
+const ADMIN_ID = Number(process.env.ADMIN_ID);
 
 // ================= DB =================
 
@@ -33,160 +33,199 @@ db.run(`CREATE TABLE IF NOT EXISTS services (
  config TEXT
 )`);
 
+db.run(`CREATE TABLE IF NOT EXISTS payments (
+ chat_id INTEGER PRIMARY KEY,
+ order_id TEXT,
+ pay_url TEXT,
+ type TEXT,
+ created_at INTEGER
+)`);
+
 // ================= WEBHOOK =================
 
-const url = `https://${process.env.RAILWAY_STATIC_URL}/bot${process.env.BOT_TOKEN}`;
+const WEBHOOK_URL =
+`https://${process.env.RAILWAY_STATIC_URL}/bot${process.env.BOT_TOKEN}`;
 
 app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-  try {
-    bot.processUpdate(req.body);
-  } catch (e) {
-    console.log("Update error:", e.message);
-  }
-  res.sendStatus(200);
+ try {
+  bot.processUpdate(req.body);
+ } catch (e) {
+  console.log("Webhook error:", e.message);
+ }
+ res.sendStatus(200);
 });
 
-bot.setWebHook(url).catch(() => {});
+bot.setWebHook(WEBHOOK_URL).catch(() => {});
 
-// ================= UI =================
+// ================= MENU =================
 
 const menu = {
-  keyboard: [
-    ["🛒 خرید اشتراک"],
-    ["🎁 تست رایگان"],
-    ["📦 سرویس‌های من"]
-  ],
-  resize_keyboard: true
+ keyboard: [
+  ["🛒 خرید اشتراک", "🎁 تست رایگان"],
+  ["📦 سرویس‌های من"]
+ ],
+ resize_keyboard: true
 };
 
 // ================= START =================
 
 bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
+ const chatId = msg.chat.id;
 
-  db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
+ db.run(`INSERT OR IGNORE INTO users(id) VALUES(?)`, [chatId]);
 
-  bot.sendMessage(chatId,
-`👋 خوش آمدید
-
-🔹 خرید اشتراک
-🔹 تست رایگان
-🔹 سرویس‌ها`
-  , {
-    reply_markup: menu
-  });
+ bot.sendMessage(chatId, "👋 خوش آمدید", {
+  reply_markup: menu
+ });
 });
 
 // ================= MESSAGE =================
 
 bot.on("message", (msg) => {
-  if (!msg.text) return;
+ if (!msg.text) return;
 
-  const chatId = msg.chat.id;
-  const text = msg.text;
+ const chatId = msg.chat.id;
+ const text = msg.text;
 
-  // ---------- BUY ----------
-  if (text === "🛒 خرید اشتراک") {
-    return bot.sendMessage(chatId, "💰 انتخاب پلن:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "2GB - 340,000", callback_data: "buy_2" }],
-          [{ text: "5GB - 800,000", callback_data: "buy_5" }],
-          [{ text: "10GB - 1,500,000", callback_data: "buy_10" }]
-        ]
-      }
-    });
-  }
+ // ---------- BUY ----------
+ if (text === "🛒 خرید اشتراک") {
+  return bot.sendMessage(chatId, "💰 پلن‌ها:", {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "2GB - 340,000", callback_data: "buy_2" }],
+     [{ text: "5GB - 800,000", callback_data: "buy_5" }],
+     [{ text: "10GB - 1,500,000", callback_data: "buy_10" }]
+    ]
+   }
+  });
+ }
 
-  // ---------- FREE ----------
-  if (text === "🎁 تست رایگان") {
-    db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
-      if (user?.free_used) {
-        return bot.sendMessage(chatId, "❌ قبلاً تست گرفتی");
-      }
+ // ---------- FIXED FREE TEST ----------
+ if (text === "🎁 تست رایگان") {
 
-      db.get(`SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`, [], (err, row) => {
-        if (!row) return bot.sendMessage(chatId, "❌ تست نداریم");
+  db.get(`SELECT * FROM users WHERE id=?`, [chatId], (err, user) => {
 
-        db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
-        db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
+   if (!user) return;
 
-        db.run(`INSERT INTO services(user_id,config) VALUES(?,?)`, [chatId, row.config]);
+   if (user.free_used === 1) {
+    return bot.sendMessage(chatId, "❌ شما قبلاً تست رایگان گرفته‌اید");
+   }
 
-        bot.sendMessage(chatId, "🎁 تست شما:\n\n" + row.config);
-      });
-    });
-  }
+   db.get(
+    `SELECT * FROM configs WHERE type='FREE' AND used=0 LIMIT 1`,
+    [],
+    (err, row) => {
 
-  // ---------- SERVICES ----------
-  if (text === "📦 سرویس‌های من") {
-    db.all(`SELECT * FROM services WHERE user_id=?`, [chatId], (err, rows) => {
-      if (!rows || rows.length === 0) {
-        return bot.sendMessage(chatId, "❌ سرویسی نداری");
-      }
+     if (!row) {
+      return bot.sendMessage(chatId, "❌ در حال حاضر تست رایگان موجود نیست");
+     }
 
-      let msgText = "📦 سرویس‌های شما:\n\n";
-      rows.forEach(r => msgText += r.config + "\n\n");
+     db.run(`UPDATE users SET free_used=1 WHERE id=?`, [chatId]);
+     db.run(`UPDATE configs SET used=1 WHERE id=?`, [row.id]);
 
-      bot.sendMessage(chatId, msgText);
-    });
-  }
-});
+     db.run(
+      `INSERT INTO services(user_id,config) VALUES(?,?)`,
+      [chatId, row.config]
+     );
 
-// ================= CALLBACK (PAYMENT ONLY) =================
+     bot.sendMessage(chatId, "🎁 تست شما:\n\n" + row.config);
 
-bot.on("callback_query", async (q) => {
-  const chatId = q.message.chat.id;
-  const data = q.data;
+    }
+   );
 
-  if (!data.startsWith("buy_")) return;
+  });
 
-  const plans = {
-    buy_2: { name: "2GB", amount: 340000 },
-    buy_5: { name: "5GB", amount: 800000 },
-    buy_10: { name: "10GB", amount: 1500000 }
-  };
+ }
 
-  const plan = plans[data];
-  if (!plan) return;
+ // ---------- FIXED SERVICES ----------
+ if (text === "📦 سرویس‌های من") {
 
-  try {
-    const orderId = `${chatId}_${Date.now()}`;
-    const usd = Math.max(Math.round(plan.amount / 60000), 1);
+  db.all(
+   `SELECT * FROM services WHERE user_id=?`,
+   [chatId],
+   (err, rows) => {
 
-    const res = await axios.get("https://api.plisio.net/api/v1/invoices/new", {
-      params: {
-        api_key: process.env.PLISIO_SECRET_KEY,
-        order_number: orderId,
-        order_name: plan.name,
-        source_currency: "USD",
-        source_amount: usd,
-        currency: "TON",
-        email: "test@test.com",
-        callback_url: `https://${process.env.RAILWAY_STATIC_URL}/plisio`
-      }
-    });
-
-    const payUrl = res.data?.data?.invoice_url;
-
-    if (!payUrl) {
-      return bot.sendMessage(chatId, "❌ خطا در ساخت پرداخت");
+    if (!rows || rows.length === 0) {
+     return bot.sendMessage(chatId, "❌ شما هیچ سرویسی ندارید");
     }
 
-    bot.sendMessage(chatId, "💳 لینک پرداخت:", {
-      reply_markup: {
-        inline_keyboard: [[{ text: "پرداخت", url: payUrl }]]
-      }
+    let msgText = "📦 سرویس‌های شما:\n\n";
+
+    rows.forEach(r => {
+     msgText += "━━━━━━━━━━━━\n";
+     msgText += r.config + "\n";
     });
 
-  } catch (e) {
-    console.log("PAY ERROR:", e.message);
-    bot.sendMessage(chatId, "❌ خطا در پرداخت");
+    bot.sendMessage(chatId, msgText);
+   }
+  );
+
+ }
+
+});
+
+// ================= CALLBACK (PAYMENT) =================
+
+bot.on("callback_query", async (q) => {
+
+ const chatId = q.message.chat.id;
+ const data = q.data;
+
+ if (!data || !data.startsWith("buy_")) return;
+
+ const plans = {
+  buy_2: { type: "2GB", amount: 340000 },
+  buy_5: { type: "5GB", amount: 800000 },
+  buy_10: { type: "10GB", amount: 1500000 }
+ };
+
+ const plan = plans[data];
+ if (!plan) return;
+
+ try {
+
+  const orderId = `${chatId}_${Date.now()}`;
+  const usd = Math.max(Math.round(plan.amount / 60000), 1);
+
+  const res = await axios.get(
+   "https://api.plisio.net/api/v1/invoices/new",
+   {
+    params: {
+     api_key: process.env.PLISIO_SECRET_KEY,
+     order_number: orderId,
+     order_name: plan.type,
+     source_currency: "USD",
+     source_amount: usd,
+     currency: "TON",
+     email: "test@test.com",
+     callback_url: `https://${process.env.RAILWAY_STATIC_URL}/plisio`
+    }
+   }
+  );
+
+  const payUrl = res.data?.data?.invoice_url;
+
+  if (!payUrl) {
+   return bot.sendMessage(chatId, "❌ خطا در ساخت لینک پرداخت");
   }
+
+  bot.sendMessage(chatId, "💳 لینک پرداخت:", {
+   reply_markup: {
+    inline_keyboard: [
+     [{ text: "💰 پرداخت", url: payUrl }]
+    ]
+   }
+  });
+
+ } catch (e) {
+  console.log("PAY ERROR:", e.message);
+  bot.sendMessage(chatId, "❌ خطا در پرداخت");
+ }
+
 });
 
 // ================= SERVER =================
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log("BOT RUNNING");
+ console.log("BOT RUNNING");
 });
