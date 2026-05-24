@@ -8,6 +8,9 @@ const bot = new Bot(config.botToken);
 const app = express();
 app.use(express.json());
 
+var paymentLinks = {};
+var paymentTimes = {};
+
 function mainKeyboard() {
   return Keyboard.from([
     [{ text: 'خرید اشتراک' }, { text: 'سرویس‌های من' }],
@@ -39,6 +42,7 @@ bot.command('start', async function(ctx) {
 bot.on('message:text', async function(ctx) {
   var text = ctx.message.text;
   var userId = ctx.from.id;
+  var now = Date.now();
   
   if (text === 'خرید اشتراک') {
     await ctx.reply('پلن را انتخاب کنید:', {
@@ -70,20 +74,31 @@ bot.on('message:text', async function(ctx) {
     await ctx.reply('منوی اصلی:', {
       reply_markup: mainKeyboard()
     });
-  } else if (text.indexOf('گیگ') > -1) {
-    var planId = null;
-    if (text.indexOf('2 گیگ') > -1) planId = '2gb';
-    else if (text.indexOf('5 گیگ') > -1) planId = '5gb';
-    else if (text.indexOf('10 گیگ') > -1) planId = '10gb';
-    
-    if (planId) {
-      var cfg = db.getConfig(planId);
-      if (!cfg) {
-        await ctx.reply('این پلن فعال نیست.');
-        return;
-      }
-      await ctx.reply('برای پرداخت به @Base_forever پیام دهید.');
+  } else if (text.indexOf('2 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5737010457';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 2 گیگ - 340 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5737010457\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text.indexOf('5 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=6268245939';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 5 گیگ - 800 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=6268245939\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text.indexOf('10 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5014091528';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 10 گیگ - 1,500,000 تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5014091528\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text === 'بررسی پرداخت' || text === 'فعالسازی') {
+    if (!paymentLinks[userId]) {
+      await ctx.reply('لینک پرداختی ندارید. ابتدا اشتراک بخرید.');
+      return;
     }
+    var elapsed = (now - paymentTimes[userId]) / 1000 / 60;
+    if (elapsed > 20) {
+      await ctx.reply('❌ لینک پرداخت منقضی شده است. لطفا دوباره خرید کنید.');
+      delete paymentLinks[userId];
+      delete paymentTimes[userId];
+      return;
+    }
+    await ctx.reply('⏳ لطفا صبر کنید...');
   }
 });
 
