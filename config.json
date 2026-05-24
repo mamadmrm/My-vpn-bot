@@ -1,7 +1,7 @@
 {
   "botToken": "8818158580:AAEuG0HHIM0QfHIcibO-iORtFOmj9Z5bF10",
   "adminId": "489450312",
-  "plisioSecret": "qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy",
+  "nowPaymentsApiKey": "71J33S8-FFDM0XD-HQRHYFM-RJC32C4",
   "plans": [
     { "id": "2gb", "name": "2 گیگ", "price": 2 },
     { "id": "5gb", "name": "5 گیگ", "4": 4 },
