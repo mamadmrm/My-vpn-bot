@@ -1,16 +1,16 @@
 {
-  "botToken": "8818158580:AAGe9qQOzIARSSPd2UJ5_2VgIzdjx0tQ3sI",
+  "botToken": "8818158580:AAEuG0HHIM0QfHIcibO-iORtFOmj9Z5bF10",
+  "adminId": "489450312",
   "plisioSecret": "qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy",
-  "adminId": 489450312,
   "plans": [
-    { "id": "2gb", "name": "۲ گیگابایت", "price": 2, "duration": "۳۰ روز" },
-    { "id": "5gb", "name": "۵ گیگابایت", "price": 4, "duration": "۳۰ روز" },
-    { "id": "10gb", "name": "۱۰ گیگابایت", "price": 9, "duration": "۳۰ روز" }
+    { "id": "2gb", "name": "2 گیگ", "price": 2 },
+    { "id": "5gb", "name": "5 گیگ", "4": 4 },
+    { "id": "10gb", "name": "10 گیگ", "price": 9 }
   ],
-  "freeTestConfig": "vless://uuid@domain:443?encryption=none&security=tls&type=grpc#Free-Test",
   "configs": {
-    "2gb": "vless://uuid-2gb@domain:443?encryption=none&security=tls&type=grpc#2GB-Plan",
-    "5gb": "vless://uuid-5gb@domain:443?encryption=none&security=tls&type=grpc#5GB-Plan",
-    "10gb": "vless://uuid-10gb@domain:443?encryption=none&security=tls&type=grpc#10GB-Plan"
-  }
+    "2gb": "vless://...",
+    "5gb": "vless://...",
+    "10gb": "vless://..."
+  },
+  "freeTestConfig": "vless://..."
 }
