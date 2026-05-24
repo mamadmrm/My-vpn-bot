@@ -1,6 +1,7 @@
-const { Bot, Keyboard } = require("grammy");
+const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
 const axios = require("axios");
+
 const db = require("./database");
 const config = require("./config.json");
 
@@ -12,39 +13,26 @@ app.use(express.json());
 const payments = {};
 const tickets = {};
 
-// ================= KEYBOARDS =================
+let adminMode = false;
+let adminType = "";
+
+// ================= MAIN KEYBOARD =================
 
 function mainKeyboard(userId) {
 
  return Keyboard.from([
 
-  [{ text: "🛒 خرید اشتراک" }],
+  [{ text: "🔐 خرید اشتراک" }],
 
-  [{ text: "📦 سرویس‌های من" }, { text: "🎁 تست رایگان" }],
+  [{ text: "🛍 سرویس‌های من" }],
+
+  [{ text: "🎁 تست رایگان" }],
 
   [{ text: "🎫 ارسال تیکت" }],
 
   ...(userId == config.adminId
    ? [[{ text: "⚙️ مدیریت" }]]
    : [])
-
- ]).resized();
-
-}
-
-function planKeyboard() {
-
- return Keyboard.from([
-
-  [{ text: "2 گیگ - 340 هزار تومان" }],
-
-  [{ text: "5 گیگ - 800 هزار تومان" }],
-
-  [{ text: "10 گیگ - 1500000 تومان" }],
-
-  [{ text: "🔄 بررسی پرداخت" }],
-
-  [{ text: "🔙 بازگشت" }]
 
  ]).resized();
 
@@ -79,11 +67,6 @@ bot.command("start", async (ctx) => {
 
 });
 
-// ================= ADMIN =================
-
-let adminMode = false;
-let adminType = "";
-
 // ================= MESSAGE =================
 
 bot.on("message:text", async (ctx) => {
@@ -93,21 +76,117 @@ bot.on("message:text", async (ctx) => {
 
  // ================= BUY =================
 
- if (text === "🛒 خرید اشتراک") {
+ if (text === "🔐 خرید اشتراک") {
 
-  return ctx.reply("پلن را انتخاب کنید:", {
-   reply_markup: planKeyboard()
-  });
+  const keyboard = new InlineKeyboard()
+
+   .text(
+    "یک ماهه - 2 گیگ - 340,000 تومان",
+    "buy_2"
+   )
+
+   .row()
+
+   .text(
+    "یک ماهه - 5 گیگ - 800,000 تومان",
+    "buy_5"
+   )
+
+   .row()
+
+   .text(
+    "یک ماهه - 10 گیگ - 1,500,000 تومان",
+    "buy_10"
+   )
+
+   .row()
+
+   .text("🔙 بازگشت", "back");
+
+  return ctx.reply(
+   "📦 لطفا پلن موردنظر را انتخاب کنید",
+   {
+    reply_markup: keyboard
+   }
+  );
 
  }
 
- // ================= BACK =================
+ // ================= MY SERVICES =================
 
- if (text === "🔙 بازگشت") {
+ if (text === "🛍 سرویس‌های من") {
 
-  return ctx.reply("منوی اصلی", {
-   reply_markup: mainKeyboard(userId)
+  const services =
+   db.getPurchases(userId);
+
+  if (!services.length) {
+
+   return ctx.reply(
+    "❌ سرویسی ندارید"
+   );
+
+  }
+
+  let msg =
+   "📦 سرویس‌های شما:\n\n";
+
+  services.forEach((s) => {
+
+   msg +=
+`🔹 ${s.type}
+
+${s.config}
+
+`;
+
   });
+
+  return ctx.reply(msg);
+
+ }
+
+ // ================= FREE TEST =================
+
+ if (text === "🎁 تست رایگان") {
+
+  const user = db.getUser(userId);
+
+  if (user && user.hasFreeTest) {
+
+   return ctx.reply(
+    "❌ قبلاً تست رایگان گرفته‌اید"
+   );
+
+  }
+
+  const cfg =
+   db.getUnusedConfig("FREE");
+
+  if (!cfg) {
+
+   return ctx.reply(
+    "❌ تست موجود نیست"
+   );
+
+  }
+
+  db.useConfig(cfg.id);
+
+  db.setFreeTestUsed(userId);
+
+  db.addPurchase(
+   userId,
+   "20MB TEST",
+   cfg.config
+  );
+
+  return ctx.reply(
+
+`🎁 تست رایگان شما:
+
+${cfg.config}`
+
+  );
 
  }
 
@@ -153,68 +232,18 @@ ${text}`
   );
 
   return ctx.reply(
-   "✅ تیکت شما ارسال شد"
+   "✅ تیکت ارسال شد"
   );
 
  }
 
- // ================= FREE TEST =================
+ // ================= ADMIN =================
 
- if (text === "🎁 تست رایگان") {
-
-  const user = db.getUser(userId);
-
-  if (user && user.hasFreeTest) {
-
-   return ctx.reply("❌ قبلاً تست رایگان گرفته‌اید");
-
-  }
-
-  const cfg = db.getUnusedConfig("FREE");
-
-  if (!cfg) {
-
-   return ctx.reply("❌ کانفیگ تست موجود نیست");
-
-  }
-
-  db.useConfig(cfg.id);
-
-  db.setFreeTestUsed(userId);
-
-  db.addPurchase(userId, "20MB TEST", cfg.config);
-
-  return ctx.reply(`🎁 تست رایگان:\n\n${cfg.config}`);
-
- }
-
- // ================= MY SERVICES =================
-
- if (text === "📦 سرویس‌های من") {
-
-  const services = db.getPurchases(userId);
-
-  if (!services.length) {
-
-   return ctx.reply("❌ سرویسی ندارید");
-
-  }
-
-  let msg = "📦 سرویس‌های شما:\n\n";
-
-  services.forEach((s) => {
-
-   msg += `🔹 ${s.type}\n${s.config}\n\n`;
-
-  });
-
-  return ctx.reply(msg);
-
- }
-
- // ================= ADMIN PANEL =================
-
- if (text === "⚙️ مدیریت" && userId == config.adminId) {
+ if (
+  text === "⚙️ مدیریت"
+  &&
+  userId == config.adminId
+ ) {
 
   return ctx.reply(
 
@@ -229,31 +258,54 @@ add FREE`
 
  }
 
- // ================= ADD MODE =================
+ // ================= ADMIN MODE =================
 
- if (text.startsWith("add ") && userId == config.adminId) {
+ if (
+  text.startsWith("add ")
+  &&
+  userId == config.adminId
+ ) {
 
   adminMode = true;
 
-  adminType = text.replace("add ", "").trim();
+  adminType =
+   text.replace("add ", "").trim();
 
   return ctx.reply(
-"کانفیگ‌ها را بفرست\nهر خط = یک کانفیگ\n\nبرای پایان: done"
+
+`کانفیگ‌ها را بفرست
+
+هر خط = یک کانفیگ
+
+پایان:
+done`
+
   );
 
  }
 
  // ================= SAVE CONFIG =================
 
- if (adminMode && userId == config.adminId && text !== "done") {
+ if (
+  adminMode
+  &&
+  userId == config.adminId
+  &&
+  text !== "done"
+ ) {
 
   let count = 0;
 
   text.split("\n").forEach(line => {
 
-   if (line.startsWith("vless://")) {
+   if (
+    line.startsWith("vless://")
+   ) {
 
-    db.addConfig(adminType, line.trim());
+    db.addConfig(
+     adminType,
+     line.trim()
+    );
 
     count++;
 
@@ -261,15 +313,40 @@ add FREE`
 
   });
 
-  return ctx.reply(`✅ ${count} کانفیگ ذخیره شد`);
+  return ctx.reply(
+   `✅ ${count} کانفیگ ذخیره شد`
+  );
 
  }
 
- if (text === "done") {
+ if (
+  text === "done"
+  &&
+  userId == config.adminId
+ ) {
 
   adminMode = false;
 
-  return ctx.reply("✅ پایان");
+  return ctx.reply(
+   "✅ پایان افزودن"
+  );
+
+ }
+
+});
+
+// ================= CALLBACKS =================
+
+bot.on("callback_query:data", async (ctx) => {
+
+ const data = ctx.callbackQuery.data;
+ const userId = ctx.from.id;
+
+ // ================= BACK =================
+
+ if (data === "back") {
+
+  return ctx.deleteMessage();
 
  }
 
@@ -277,38 +354,39 @@ add FREE`
 
  const plans = {
 
-  "2 گیگ - 340 هزار تومان": {
+  buy_2: {
    type: "2GB",
    price: 2
   },
 
-  "5 گیگ - 800 هزار تومان": {
+  buy_5: {
    type: "5GB",
    price: 4
   },
 
-  "10 گیگ - 1500000 تومان": {
+  buy_10: {
    type: "10GB",
-   price: 9
+   price: 8
   }
 
  };
 
- // ================= CREATE PAYMENT =================
+ if (!plans[data]) return;
 
- if (plans[text]) {
+ // ================= ACTIVE LINK =================
 
-  if (payments[userId]) {
+ if (payments[userId]) {
 
-   const remain =
-    20 - Math.floor(
-     (Date.now() - payments[userId].time)
+  const remain =
+   20 - Math.floor(
+    (Date.now() -
+     payments[userId].time)
      / 60000
-    );
+   );
 
-   if (remain > 0) {
+  if (remain > 0) {
 
-    return ctx.reply(
+   return ctx.reply(
 
 `⚠️ لینک فعال دارید
 
@@ -316,125 +394,166 @@ ${payments[userId].url}
 
 ⏰ ${remain} دقیقه باقی مانده`
 
-    );
-
-   }
-
-   delete payments[userId];
-
-   db.clearPendingPayment(userId);
+   );
 
   }
 
-  try {
+  delete payments[userId];
 
-   const plan = plans[text];
+  db.clearPendingPayment(userId);
 
-   const response = await axios.post(
+ }
+
+ // ================= CREATE PAYMENT =================
+
+ try {
+
+  const plan = plans[data];
+
+  const response =
+   await axios.post(
 
     "https://api.nowpayments.io/v1/invoice",
 
     {
      price_amount: plan.price,
      price_currency: "usd",
-     order_id: `${userId}_${Date.now()}`,
-     order_description: plan.type
+     order_id:
+      `${userId}_${Date.now()}`,
+     order_description:
+      plan.type
     },
 
     {
      headers: {
-      "x-api-key": config.nowPaymentsApiKey
+      "x-api-key":
+       config.nowPaymentsApiKey
      }
     }
 
    );
 
-   const url = response.data.invoice_url;
+  const url =
+   response.data.invoice_url;
 
-   payments[userId] = {
+  payments[userId] = {
 
-    url,
-    plan: plan.type,
-    time: Date.now()
+   url,
+   plan: plan.type,
+   time: Date.now()
 
-   };
+  };
 
-   db.setPendingPayment(userId, plan.type);
+  db.setPendingPayment(
+   userId,
+   plan.type
+  );
 
-   // ================= AUTO EXPIRE =================
+  // ================= AUTO EXPIRE =================
 
-   setTimeout(async () => {
+  setTimeout(async () => {
 
-    if (!payments[userId]) return;
+   if (!payments[userId]) return;
 
-    const elapsed =
-     (Date.now() - payments[userId].time)
+   const elapsed =
+    (Date.now() -
+     payments[userId].time)
      / 60000;
 
-    if (elapsed >= 20) {
+   if (elapsed >= 20) {
 
-     delete payments[userId];
+    delete payments[userId];
 
-     db.clearPendingPayment(userId);
+    db.clearPendingPayment(
+     userId
+    );
 
-     try {
+    try {
 
-      await bot.api.sendMessage(
-       userId,
-       "⌛ لینک پرداخت منقضی شد"
-      );
+     await bot.api.sendMessage(
 
-     } catch {}
+      userId,
 
-    }
+      "⌛ لینک پرداخت منقضی شد"
 
-   }, 20 * 60 * 1000);
+     );
 
-   return ctx.reply(
+    } catch {}
 
-`💳 لینک پرداخت:
+   }
 
-${url}
+  }, 20 * 60 * 1000);
+
+  const payKeyboard =
+   new InlineKeyboard()
+
+   .url(
+    "💳 پرداخت",
+    url
+   )
+
+   .row()
+
+   .text(
+    "✅ بررسی پرداخت",
+    "check_payment"
+   );
+
+  return ctx.reply(
+
+`💰 لینک پرداخت ساخته شد
 
 ⏰ اعتبار:
-20 دقیقه
+20 دقیقه`
 
-بعد پرداخت بزن:
-🔄 بررسی پرداخت`
+  ,
+  {
+   reply_markup: payKeyboard
+  });
 
-   );
+ } catch (e) {
 
-  } catch (e) {
+  console.log(
+   e.response?.data || e.message
+  );
 
-   console.log(e.response?.data || e.message);
-
-   return ctx.reply(
-    "❌ خطا در ساخت لینک پرداخت"
-   );
-
-  }
+  return ctx.reply(
+   "❌ خطا در پرداخت"
+  );
 
  }
 
- // ================= CHECK PAYMENT =================
+ // ================= CHECK =================
 
- if (text === "🔄 بررسی پرداخت") {
+});
+
+bot.callbackQuery(
+ "check_payment",
+ async (ctx) => {
+
+  const userId = ctx.from.id;
 
   const pending =
    db.getPendingPayment(userId);
 
   if (!pending) {
 
-   return ctx.reply("❌ پرداختی ندارید");
+   return ctx.reply(
+    "❌ پرداختی ندارید"
+   );
 
   }
 
   const cfg =
-   db.getUnusedConfig(pending.plan);
+   db.getUnusedConfig(
+    pending.plan
+   );
 
   if (!cfg) {
 
-   return ctx.reply("❌ کانفیگ موجود نیست");
+   return ctx.reply(
+    "❌ کانفیگ موجود نیست"
+   );
 
   }
 
@@ -446,7 +565,9 @@ ${url}
    cfg.config
   );
 
-  db.clearPendingPayment(userId);
+  db.clearPendingPayment(
+   userId
+  );
 
   delete payments[userId];
 
@@ -458,21 +579,25 @@ ${cfg.config}`
 
   );
 
- }
-
-});
+ });
 
 // ================= SERVER =================
 
 app.get("/", (req, res) => {
+
  res.send("BOT RUNNING");
+
 });
 
 const PORT =
  process.env.PORT || 3000;
 
 app.listen(PORT, () => {
- console.log("Server Started");
+
+ console.log(
+  "Server Started"
+ );
+
 });
 
 // ================= BOT =================
