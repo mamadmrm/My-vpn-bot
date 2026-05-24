@@ -1,8 +1,5 @@
 const { Bot, Keyboard } = require('grammy');
 const express = require('express');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const db = require('./database');
 const config = require('./config.json');
@@ -11,130 +8,83 @@ const bot = new Bot(config.botToken);
 const app = express();
 app.use(express.json());
 
-// Keyboard
 function mainKeyboard() {
   return Keyboard.from([
-    [{ text: '🛒 خرید اشتراک' }, { text: '📦 سرویس‌های من' }],
-    [{ text: '🎁 تست رایگان' }, { text: '📞 پشتیبانی' }]
-  ]).resized();
-}
-
-function adminKeyboard() {
-  return Keyboard.from([
-    [{ text: '➕ افزودن کانفیگ اشتراک' }, { text: '➕ افزودن کانفیگ تست رایگان' }],
-    [{ text: '👥 لیست کاربران' }, { text: '📊 آمار' }],
-    [{ text: '🔙 بازگشت' }]
+    [{ text: 'خرید اشتراک' }, { text: 'سرویس‌های من' }],
+    [{ text: 'تست رایگان' }, { text: 'پشتیبانی' }]
   ]).resized();
 }
 
 function planKeyboard() {
   return Keyboard.from([
-    [{ text: '💾 ۲ گیگ - ۲ دلار' }],
-    [{ text: '💾 ۵ گیگ - ۴ دلار' }],
-    [{ text: '💾 ۱۰ گیگ - ۹ دلار' }],
-    [{ text: '🔙 بازگشت' }]
+    [{ text: '2 گیگ - 2 دلار' }],
+    [{ text: '5 گیگ - 4 دلار' }],
+    [{ text: '10 گیگ - 9 دلار' }],
+    [{ text: 'بازگشت' }]
   ]).resized();
 }
 
-// Plisio Payment
-async function createPlisioInvoice(amount, userId, planId) {
-  const response = await fetch('https://plisio.net/api/v1/invoices/new', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + config.plisioSecret
-    },
-    body: JSON.stringify({
-      amount: amount,
-      currency: 'USD',
-      order_number: userId + '_' + planId + '_' + Date.now(),
-      order_name: 'VPN Plan ' + planId,
-      callback_url: 'https://my-vpn-bot-production.up.railway.app/webhook?userId=' + userId + '&planId=' + planId,
-      redirect_url: 'https://t.me/' + bot.bot.username
-    })
-  });
-  return response.json();
-}
-
-// Commands
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id;
-  const username = ctx.from.username;
-  const firstName = ctx.from.first_name;
+  const username = ctx.from.username || 'unknown';
+  const firstName = ctx.from.first_name || 'User';
   
   db.createUser(userId, username, firstName);
   
-  const text = '🎉 *به ربات فروش VPN خوش آمدید!*\n\nلطفا یکی از گزینه‌های زیر را انتخاب کنید:';
-  
-  await ctx.reply(text, {
-    reply_markup: mainKeyboard(),
-    parse_mode: 'Markdown'
+  await ctx.reply('به ربات فروش VPN خوش آمدید!', {
+    reply_markup: mainKeyboard()
   });
 });
 
-bot.command('admin', async (ctx) => {
-  if (ctx.from.id !== config.adminId) {
-    return ctx.reply('⛔️ دسترسی غیرمجاز');
-  }
-  
-  await ctx.reply('⚙️ *پنل مدیریت*', {
-    reply_markup: adminKeyboard(),
-    parse_mode: 'Markdown'
-  });
-});
-
-// Buttons
 bot.on('message:text', async (ctx) => {
   const text = ctx.message.text;
   const userId = ctx.from.id;
   
-  if (text === '🛒 خرید اشتراک') {
-    await ctx.reply('💰 *لطفا پلن مورد نظر را انتخاب کنید:*', {
-      reply_markup: planKeyboard(),
-      parse_mode: 'Markdown'
+  if (text === 'خرید اشتراک') {
+    await ctx.reply('پلن مورد نظر را انتخاب کنید:', {
+      reply_markup: planKeyboard()
     });
   }
   
-  else if (text === '📦 سرویس‌های من') {
+  else if (text === 'سرویس‌های من') {
     const user = db.getUser(userId);
-    if (!user || user.purchases.length === 0) {
-      await ctx.reply('❌ شما هنوز اشتراکی خریداری نکرده‌اید!');
+    if (!user || !user.purchases || user.purchases.length === 0) {
+      await ctx.reply('هنوز اشتراکی خریداری نکرده‌اید!');
       return;
     }
-    
-    let msg = '📦 *سرویس‌های شما:*\n\n';
-    user.purchases.forEach((purchase, index) => {
-      const plan = config.plans.find(p => p.id === purchase.planId);
-      msg += (index + 1) + '. ' + plan.name + '\n';
-      msg += '⏰ انقضا: ' + new Date(purchase.expireDate).toLocaleDateString('fa-IR') + '\n';
-      msg += '```\n' + purchase.config + '\n```\n';
-    });
-    
-    await ctx.reply(msg, { parse_mode: 'Markdown' });
+    await ctx.reply('سرویس‌های شما: ' + user.purchases.length);
   }
   
-  else if (text === '🎁 تست رایگان') {
+  else if (text === 'تست رایگان') {
     const user = db.getUser(userId);
-    
     if (user && user.hasFreeTest) {
-      await ctx.reply('❌ شما قبلا از تست رایگان استفاده کرده‌اید!');
+      await ctx.reply('قبلا از تست رایگان استفاده کرده‌اید!');
       return;
     }
-    
-    const freeConfig = db.getConfig('freeTest') || config.freeTestConfig;
-    
-    await ctx.reply('🎁 *تست رایگان یک روزه*\n\nکانفیگ زیر را کپی کنید:\n\n```\n' + freeConfig + '\n```\n\n⚠️ این تست فقط یکبار قابل استفاده است.', {
-      parse_mode: 'Markdown'
-    });
-    
+    const freeConfig = db.getConfig('freeTest') || 'free-test-config';
+    await ctx.reply('تست رایگان:\n\n' + freeConfig);
     db.setFreeTestUsed(userId);
   }
   
-  else if (text === '📞 پشتیبانی') {
-    await ctx.reply('📞 برای تماس با پشتیبانی به @admin پیام دهید.');
+  else if (text === 'پشتیبانی') {
+    await ctx.reply('به @admin پیام دهید.');
   }
   
-  else if (text === '🔙 بازگشت') {
-    await ctx.reply('🏠 *منوی اصلی*', {
-      reply_markup: mainKeyboard(),
-      par…
+  else if (text === 'بازگشت') {
+    await ctx.reply('منوی اصلی', {
+      reply_markup: mainKeyboard()
+    });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.send('Bot is running!');
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Server running on port ' + PORT);
+});
+
+bot.start();
+console.log('Bot started!');
