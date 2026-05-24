@@ -1,115 +1,492 @@
-const { Bot, Keyboard } = require('grammy');
-const express = require('express');
-
-const db = require('./database');
-const config = require('./config.json');
+const { Bot, Keyboard } = require("grammy");
+const express = require("express");
+const axios = require("axios");
+const db = require("./database");
+const config = require("./config.json");
 
 const bot = new Bot(config.botToken);
+
 const app = express();
 app.use(express.json());
 
-var paymentLinks = {};
-var paymentTimes = {};
+// ================= PAYMENT CACHE =================
 
-function mainKeyboard() {
-  return Keyboard.from([
-    [{ text: 'خرید اشتراک' }, { text: 'سرویس‌های من' }],
-    [{ text: 'تست رایگان' }, { text: 'پشتیبانی' }]
-  ]).resized();
+let paymentLinks = {};
+let paymentTimes = {};
+
+// ================= KEYBOARDS =================
+
+function mainKeyboard(userId) {
+
+ return Keyboard.from([
+
+  [{ text: "🛒 خرید اشتراک" }],
+
+  [{ text: "📦 سرویس‌های من" }, { text: "🎁 تست رایگان" }],
+
+  [{ text: "📞 پشتیبانی" }],
+
+  ...(userId == config.adminId
+   ? [[{ text: "⚙️ مدیریت" }]]
+   : [])
+
+ ]).resized();
+
 }
 
-function planKeyboard() {
-  return Keyboard.from([
-    [{ text: '2 گیگ - 340 هزار تومان' }],
-    [{ text: '5 گیگ - 800 هزار تومان' }],
-    [{ text: '10 گیگ - 1500000 تومان' }],
-    [{ text: 'بازگشت' }]
-  ]).resized();
+function plansKeyboard() {
+
+ return Keyboard.from([
+
+  [{ text: "2 گیگ - 340 هزار تومان" }],
+
+  [{ text: "5 گیگ - 800 هزار تومان" }],
+
+  [{ text: "10 گیگ - 1500000 تومان" }],
+
+  [{ text: "🔄 بررسی پرداخت" }],
+
+  [{ text: "🔙 بازگشت" }]
+
+ ]).resized();
+
 }
 
-bot.command('start', async function(ctx) {
-  var userId = ctx.from.id;
-  var username = ctx.from.username || 'unknown';
-  var firstName = ctx.from.first_name || 'User';
-  
-  db.createUser(userId, username, firstName);
-  
-  await ctx.reply('به ربات فروش VPN خوش آمدید!', {
-    reply_markup: mainKeyboard()
-  });
+// ================= START =================
+
+bot.command("start", async (ctx) => {
+
+ const userId = ctx.from.id;
+
+ db.createUser(
+  userId,
+  ctx.from.username || "unknown",
+  ctx.from.first_name || "User"
+ );
+
+ await ctx.reply(
+
+`سلام و درود به ربات VPN Mirza خوش آمدید
+
+🔸 زمان سرویس ها نامحدود هست
+
+🔹 تعداد کاربر سرویس ها نامحدود هست
+
+🔸 تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`
+
+ ,
+ {
+  reply_markup: mainKeyboard(userId)
+ });
+
 });
 
-bot.on('message:text', async function(ctx) {
-  var text = ctx.message.text;
-  var userId = ctx.from.id;
-  var now = Date.now();
-  
-  if (text === 'خرید اشتراک') {
-    await ctx.reply('پلن را انتخاب کنید:', {
-      reply_markup: planKeyboard()
-    });
-  } else if (text === 'سرویس‌های من') {
-    var user = db.getUser(userId);
-    if (!user || !user.purchases || user.purchases.length === 0) {
-      await ctx.reply('اشتراکی ندارید!');
-      return;
-    }
-    await ctx.reply('شما ' + user.purchases.length + ' اشتراک دارید.');
-  } else if (text === 'تست رایگان') {
-    var user = db.getUser(userId);
-    if (user && user.hasFreeTest) {
-      await ctx.reply('قبلا استفاده کرده‌اید!');
-      return;
-    }
-    var freeConfig = db.getConfig('freeTest') || config.freeTestConfig;
-    if (!freeConfig) {
-      await ctx.reply('کانفیگ موجود نیست.');
-      return;
-    }
-    await ctx.reply('تست رایگان:\n\n' + freeConfig);
-    db.setFreeTestUsed(userId);
-  } else if (text === 'پشتیبانی') {
-    await ctx.reply('برای تماس با پشتیبانی به @Base_forever پیام دهید.');
-  } else if (text === 'بازگشت') {
-    await ctx.reply('منوی اصلی:', {
-      reply_markup: mainKeyboard()
-    });
-  } else if (text.indexOf('2 گیگ') > -1) {
-    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5737010457';
-    paymentTimes[userId] = now;
-    await ctx.reply('💰 پلن 2 گیگ - 340 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5737010457\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
-  } else if (text.indexOf('5 گیگ') > -1) {
-    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=6268245939';
-    paymentTimes[userId] = now;
-    await ctx.reply('💰 پلن 5 گیگ - 800 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=6268245939\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
-  } else if (text.indexOf('10 گیگ') > -1) {
-    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5014091528';
-    paymentTimes[userId] = now;
-    await ctx.reply('💰 پلن 10 گیگ - 1,500,000 تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5014091528\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
-  } else if (text === 'بررسی پرداخت' || text === 'فعالسازی') {
-    if (!paymentLinks[userId]) {
-      await ctx.reply('لینک پرداختی ندارید. ابتدا اشتراک بخرید.');
-      return;
-    }
-    var elapsed = (now - paymentTimes[userId]) / 1000 / 60;
-    if (elapsed > 20) {
-      await ctx.reply('❌ لینک پرداخت منقضی شده است. لطفا دوباره خرید کنید.');
-      delete paymentLinks[userId];
-      delete paymentTimes[userId];
-      return;
-    }
-    await ctx.reply('⏳ لطفا صبر کنید...');
+// ================= ADMIN STATE =================
+
+let adminMode = false;
+let adminType = "";
+
+// ================= MESSAGE =================
+
+bot.on("message:text", async (ctx) => {
+
+ const text = ctx.message.text;
+ const userId = ctx.from.id;
+
+ // ================= BUY =================
+
+ if (text === "🛒 خرید اشتراک") {
+
+  return ctx.reply(
+   "پلن موردنظر را انتخاب کنید:",
+   {
+    reply_markup: plansKeyboard()
+   }
+  );
+
+ }
+
+ // ================= BACK =================
+
+ if (text === "🔙 بازگشت") {
+
+  return ctx.reply(
+   "منوی اصلی:",
+   {
+    reply_markup: mainKeyboard(userId)
+   }
+  );
+
+ }
+
+ // ================= SUPPORT =================
+
+ if (text === "📞 پشتیبانی") {
+
+  return ctx.reply(
+   "پشتیبانی:\n@Base_forever"
+  );
+
+ }
+
+ // ================= FREE TEST =================
+
+ if (text === "🎁 تست رایگان") {
+
+  let user = db.getUser(userId);
+
+  if (user && user.hasFreeTest) {
+
+   return ctx.reply(
+    "❌ شما قبلاً تست رایگان دریافت کرده‌اید"
+   );
+
   }
+
+  let freeConfig =
+   db.getUnusedConfig("FREE");
+
+  if (!freeConfig) {
+
+   return ctx.reply(
+    "❌ تست رایگان موجود نیست"
+   );
+
+  }
+
+  db.useConfig(freeConfig.id);
+
+  db.addPurchase(
+   userId,
+   "20MB TEST",
+   freeConfig.config
+  );
+
+  db.setFreeTestUsed(userId);
+
+  return ctx.reply(
+
+`🎁 تست رایگان 20MB:
+
+${freeConfig.config}`
+
+  );
+
+ }
+
+ // ================= MY SERVICES =================
+
+ if (text === "📦 سرویس‌های من") {
+
+  let services =
+   db.getPurchases(userId);
+
+  if (!services || services.length === 0) {
+
+   return ctx.reply(
+    "❌ سرویسی ندارید"
+   );
+
+  }
+
+  let msg = "📦 سرویس‌های شما:\n\n";
+
+  services.forEach((s, i) => {
+
+   msg += `🔹 ${s.type}\n`;
+   msg += `${s.config}\n\n`;
+
+  });
+
+  return ctx.reply(msg);
+
+ }
+
+ // ================= ADMIN =================
+
+ if (
+  text === "⚙️ مدیریت" &&
+  userId == config.adminId
+ ) {
+
+  return ctx.reply(
+
+`⚙️ مدیریت
+
+ارسال کنید:
+
+add 2GB
+add 5GB
+add 10GB
+add FREE`
+
+  );
+
+ }
+
+ // ================= ADD MODE =================
+
+ if (
+  userId == config.adminId &&
+  text.startsWith("add ")
+ ) {
+
+  adminMode = true;
+
+  adminType =
+   text.replace("add ", "").trim();
+
+  return ctx.reply(
+
+`کانفیگ‌ها را ارسال کنید
+
+هر خط = یک کانفیگ
+
+برای پایان:
+done`
+
+  );
+
+ }
+
+ // ================= SAVE CONFIGS =================
+
+ if (
+  adminMode &&
+  userId == config.adminId &&
+  text !== "done"
+ ) {
+
+  let count = 0;
+
+  text.split("\n").forEach(line => {
+
+   if (
+    line.trim().startsWith("vless://")
+   ) {
+
+    db.addConfig(
+     adminType,
+     line.trim()
+    );
+
+    count++;
+
+   }
+
+  });
+
+  return ctx.reply(
+   `✅ ${count} کانفیگ ذخیره شد`
+  );
+
+ }
+
+ if (
+  adminMode &&
+  text === "done"
+ ) {
+
+  adminMode = false;
+
+  return ctx.reply(
+   "✅ پایان افزودن"
+  );
+
+ }
+
+ // ================= PLANS =================
+
+ const plans = {
+
+  "2 گیگ - 340 هزار تومان": {
+   type: "2GB",
+   price: 2
+  },
+
+  "5 گیگ - 800 هزار تومان": {
+   type: "5GB",
+   price: 4
+  },
+
+  "10 گیگ - 1500000 تومان": {
+   type: "10GB",
+   price: 9
+  }
+
+ };
+
+ // ================= CREATE PAYMENT =================
+
+ if (plans[text]) {
+
+  if (paymentLinks[userId]) {
+
+   const elapsed =
+    (Date.now() - paymentTimes[userId]) /
+    1000 / 60;
+
+   if (elapsed < 20) {
+
+    return ctx.reply(
+
+`⚠️ شما لینک فعال دارید
+
+${paymentLinks[userId]}
+
+⏰ اعتبار:
+${Math.floor(20 - elapsed)} دقیقه`
+
+    );
+
+   } else {
+
+    delete paymentLinks[userId];
+    delete paymentTimes[userId];
+
+   }
+
+  }
+
+  try {
+
+   const plan = plans[text];
+
+   const response = await axios.post(
+
+    "https://api.nowpayments.io/v1/invoice",
+
+    {
+     price_amount: plan.price,
+     price_currency: "usd",
+     order_id:
+      `${userId}_${Date.now()}`,
+     order_description:
+      plan.type,
+     ipn_callback_url:
+      `${config.domain}/payment-webhook`
+    },
+
+    {
+     headers: {
+      "x-api-key":
+       config.nowPaymentsApiKey
+     }
+    }
+
+   );
+
+   const invoice =
+    response.data.invoice_url;
+
+   paymentLinks[userId] = invoice;
+
+   paymentTimes[userId] = Date.now();
+
+   db.setPendingPayment(
+    userId,
+    plan.type
+   );
+
+   return ctx.reply(
+
+`💳 لینک پرداخت ساخته شد
+
+${invoice}
+
+⏰ اعتبار:
+20 دقیقه
+
+بعد از پرداخت:
+🔄 بررسی پرداخت`
+
+   );
+
+  } catch (e) {
+
+   console.log(e.response?.data || e.message);
+
+   return ctx.reply(
+    "❌ خطا در ساخت پرداخت"
+   );
+
+  }
+
+ }
+
+ // ================= CHECK PAYMENT =================
+
+ if (text === "🔄 بررسی پرداخت") {
+
+  let pending =
+   db.getPendingPayment(userId);
+
+  if (!pending) {
+
+   return ctx.reply(
+    "❌ پرداخت فعالی ندارید"
+   );
+
+  }
+
+  // تستی:
+  // اینجا بعداً میشه verify واقعی زد
+
+  let configItem =
+   db.getUnusedConfig(
+    pending.plan
+   );
+
+  if (!configItem) {
+
+   return ctx.reply(
+    "❌ کانفیگ موجود نیست"
+   );
+
+  }
+
+  db.useConfig(configItem.id);
+
+  db.addPurchase(
+   userId,
+   pending.plan,
+   configItem.config
+  );
+
+  db.clearPendingPayment(userId);
+
+  delete paymentLinks[userId];
+  delete paymentTimes[userId];
+
+  return ctx.reply(
+
+`✅ پرداخت تایید شد
+
+📦 کانفیگ شما:
+
+${configItem.config}`
+
+  );
+
+ }
+
 });
 
-app.get('/', function(req, res) {
-  res.send('Bot is running!');
+// ================= SERVER =================
+
+app.get("/", (req, res) => {
+ res.send("Bot Running");
 });
 
-var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log('Server running on port ' + PORT);
+const PORT =
+ process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+ console.log("Server Running");
 });
+
+// ================= BOT =================
 
 bot.start();
-console.log('Bot started!');
+
+console.log("Bot Started");
