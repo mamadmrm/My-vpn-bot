@@ -11,7 +11,7 @@ const bot = new Bot(config.botToken);
 const app = express();
 app.use(express.json());
 
-// ============ Glassmorphism Keyboard ============
+// Keyboard
 function mainKeyboard() {
   return Keyboard.from([
     [{ text: '🛒 خرید اشتراک' }, { text: '📦 سرویس‌های من' }],
@@ -36,27 +36,27 @@ function planKeyboard() {
   ]).resized();
 }
 
-// ============ Plisio Payment ============
+// Plisio Payment
 async function createPlisioInvoice(amount, userId, planId) {
   const response = await fetch('https://plisio.net/api/v1/invoices/new', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.plisioSecret}`
+      'Authorization': 'Bearer ' + config.plisioSecret
     },
     body: JSON.stringify({
       amount: amount,
       currency: 'USD',
-      order_number: `${userId}_${planId}_${Date.now()}`,
-      order_name: `VPN Plan ${planId}`,
-      callback_url: `https://my-vpn-bot-production.up.railway.app/webhook?userId=${userId}&planId=${planId}`,
-      redirect_url: `https://t.me/${bot.bot.username}`
+      order_number: userId + '_' + planId + '_' + Date.now(),
+      order_name: 'VPN Plan ' + planId,
+      callback_url: 'https://my-vpn-bot-production.up.railway.app/webhook?userId=' + userId + '&planId=' + planId,
+      redirect_url: 'https://t.me/' + bot.bot.username
     })
   });
   return response.json();
 }
 
-// ============ Commands ============
+// Commands
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id;
   const username = ctx.from.username;
@@ -64,9 +64,7 @@ bot.command('start', async (ctx) => {
   
   db.createUser(userId, username, firstName);
   
-  const text = `🎉 *به ربات فروش VPN خوش آمدید!*
-
-لطفا یکی از گزینه‌های زیر را انتخاب کنید:`;
+  const text = '🎉 *به ربات فروش VPN خوش آمدید!*\n\nلطفا یکی از گزینه‌های زیر را انتخاب کنید:';
   
   await ctx.reply(text, {
     reply_markup: mainKeyboard(),
@@ -85,12 +83,11 @@ bot.command('admin', async (ctx) => {
   });
 });
 
-// ============ Buttons ============
+// Buttons
 bot.on('message:text', async (ctx) => {
   const text = ctx.message.text;
   const userId = ctx.from.id;
   
-  // خرید اشتراک
   if (text === '🛒 خرید اشتراک') {
     await ctx.reply('💰 *لطفا پلن مورد نظر را انتخاب کنید:*', {
       reply_markup: planKeyboard(),
@@ -98,7 +95,6 @@ bot.on('message:text', async (ctx) => {
     });
   }
   
-  // سرویس‌های من
   else if (text === '📦 سرویس‌های من') {
     const user = db.getUser(userId);
     if (!user || user.purchases.length === 0) {
@@ -109,17 +105,14 @@ bot.on('message:text', async (ctx) => {
     let msg = '📦 *سرویس‌های شما:*\n\n';
     user.purchases.forEach((purchase, index) => {
       const plan = config.plans.find(p => p.id === purchase.planId);
-      msg += `${index + 1}. ${plan.name}\n`;
-      msg += `⏰ انقضا: ${new Date(purchase.expireDate).toLocaleDateString('fa-IR')}\n`;
-      msg += `\`\`\`\n${purchase.config}\n\`\`\`\n`;
+      msg += (index + 1) + '. ' + plan.name + '\n';
+      msg += '⏰ انقضا: ' + new Date(purchase.expireDate).toLocaleDateString('fa-IR') + '\n';
+      msg += '```\n' + purchase.config + '\n```\n';
     });
     
-    await ctx.reply(msg, {
-      parse_mode: 'Markdown'
-    });
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
   }
   
-  // تست رایگان
   else if (text === '🎁 تست رایگان') {
     const user = db.getUser(userId);
     
@@ -130,14 +123,18 @@ bot.on('message:text', async (ctx) => {
     
     const freeConfig = db.getConfig('freeTest') || config.freeTestConfig;
     
-    await ctx.reply(`🎁 *تست رایگان یک روزه*
-
-کانفیگ زیر را کپی کنید:
-
-\`\`\`\n${freeConfig}\n\`\`\`
-
-⚠️ این تست فقط یکبار قابل استفاده است.`, {
+    await ctx.reply('🎁 *تست رایگان یک روزه*\n\nکانفیگ زیر را کپی کنید:\n\n```\n' + freeConfig + '\n```\n\n⚠️ این تست فقط یکبار قابل استفاده است.', {
       parse_mode: 'Markdown'
     });
     
-    db.setFreeTestUsed(us…
+    db.setFreeTestUsed(userId);
+  }
+  
+  else if (text === '📞 پشتیبانی') {
+    await ctx.reply('📞 برای تماس با پشتیبانی به @admin پیام دهید.');
+  }
+  
+  else if (text === '🔙 بازگشت') {
+    await ctx.reply('🏠 *منوی اصلی*', {
+      reply_markup: mainKeyboard(),
+      par…
