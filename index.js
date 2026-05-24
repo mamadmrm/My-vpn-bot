@@ -18,7 +18,7 @@ const tickets = {};
 let adminMode = false;
 let adminType = "";
 
-// برای پاسخ تیکت
+// فقط برای ریپلای تیکت
 let replyMode = false;
 let replyUserId = null;
 
@@ -63,8 +63,8 @@ bot.command("start", async (ctx) => {
 `سلام و درود به ربات VPN Mirza خوش آمدید
 
 🔸 زمان سرویس ها نامحدود هست
-🔹 تعداد کاربر نامحدود
-🔸 پشتیبانی 24/7`
+🔹 تعداد کاربر سرویس ها نامحدود هست
+🔸 تیم وی پی ان میرزا`
 
  ,
  {
@@ -73,34 +73,18 @@ bot.command("start", async (ctx) => {
 
 });
 
-// ================= MAIN MESSAGE =================
+// ================= MESSAGE =================
 
 bot.on("message:text", async (ctx) => {
 
  const text = ctx.message.text;
  const userId = ctx.from.id;
 
- // ================= BUY MENU =================
-
- if (text === "🔐 خرید اشتراک") {
-
-  const keyboard = new InlineKeyboard()
-   .text("2 گیگ - 340,000 تومان", "buy_2").row()
-   .text("5 گیگ - 800,000 تومان", "buy_5").row()
-   .text("10 گیگ - 1,500,000 تومان", "buy_10").row()
-   .text("🔙 بازگشت", "back");
-
-  return ctx.reply("📦 انتخاب پلن:", {
-   reply_markup: keyboard
-  });
-
- }
-
  // ================= TICKET =================
 
  if (text === "🎫 ارسال تیکت") {
 
-  tickets[userId] = { step: "write" };
+  tickets[userId] = true;
 
   return ctx.reply(
 `✍️ پیام خود را بنویسید
@@ -119,8 +103,8 @@ bot.on("message:text", async (ctx) => {
 
  }
 
- // کاربر در حال نوشتن تیکت
- if (tickets[userId]?.step === "write") {
+ // کاربر در حال ارسال تیکت
+ if (tickets[userId]) {
 
   delete tickets[userId];
 
@@ -130,7 +114,7 @@ bot.on("message:text", async (ctx) => {
 
 `🎫 تیکت جدید
 
-👤 ID: ${userId}
+👤 User ID: ${userId}
 
 📩 پیام:
 ${text}`,
@@ -138,10 +122,12 @@ ${text}`,
    {
     reply_markup: {
      inline_keyboard: [
-      [{
-       text: "💬 پاسخ",
-       callback_data: `reply_${userId}`
-      }]
+      [
+       {
+        text: "💬 پاسخ به تیکت",
+        callback_data: `reply_${userId}`
+       }
+      ]
      ]
     }
    }
@@ -152,53 +138,7 @@ ${text}`,
 
  }
 
- // ================= ADMIN =================
-
- if (text === "⚙️ مدیریت" && userId == config.adminId) {
-
-  return ctx.reply(
-`پنل مدیریت:
-
-add 2GB
-add 5GB
-add 10GB
-add FREE`
-  );
-
- }
-
- if (text.startsWith("add ") && userId == config.adminId) {
-
-  adminMode = true;
-  adminType = text.replace("add ", "").trim();
-
-  return ctx.reply("کانفیگ‌ها را بفرست (هر خط یک کانفیگ)");
-
- }
-
- if (adminMode && userId == config.adminId && text !== "done") {
-
-  let count = 0;
-
-  text.split("\n").forEach(line => {
-   if (line.startsWith("vless://")) {
-    db.addConfig(adminType, line.trim());
-    count++;
-   }
-  });
-
-  return ctx.reply(`✅ ${count} کانفیگ ذخیره شد`);
-
- }
-
- if (text === "done" && userId == config.adminId) {
-
-  adminMode = false;
-  return ctx.reply("✅ پایان");
-
- }
-
- // ================= REPLY MODE ADMIN =================
+ // ================= ADMIN REPLY =================
 
  if (userId == config.adminId && replyMode) {
 
@@ -216,6 +156,92 @@ ${text}`
 
  }
 
+ // ================= BUY =================
+
+ if (text === "🔐 خرید اشتراک") {
+
+  const keyboard = new InlineKeyboard()
+   .text("2 گیگ - 340,000 تومان", "buy_2").row()
+   .text("5 گیگ - 800,000 تومان", "buy_5").row()
+   .text("10 گیگ - 1,500,000 تومان", "buy_10").row()
+   .text("🔙 بازگشت", "back");
+
+  return ctx.reply("📦 انتخاب پلن:", {
+   reply_markup: keyboard
+  });
+
+ }
+
+ // ================= MY SERVICES =================
+
+ if (text === "🛍 سرویس‌های من") {
+
+  const services = db.getPurchases(userId);
+
+  if (!services.length) return ctx.reply("❌ سرویسی ندارید");
+
+  let msg = "📦 سرویس‌های شما:\n\n";
+
+  services.forEach(s => {
+   msg += `🔹 ${s.type}\n${s.config}\n\n`;
+  });
+
+  return ctx.reply(msg);
+
+ }
+
+ // ================= FREE TEST =================
+
+ if (text === "🎁 تست رایگان") {
+
+  const user = db.getUser(userId);
+
+  if (user?.hasFreeTest) return ctx.reply("❌ قبلاً استفاده شده");
+
+  const cfg = db.getUnusedConfig("FREE");
+
+  if (!cfg) return ctx.reply("❌ تست موجود نیست");
+
+  db.useConfig(cfg.id);
+  db.setFreeTestUsed(userId);
+  db.addPurchase(userId, "20MB TEST", cfg.config);
+
+  return ctx.reply(`🎁 تست:\n\n${cfg.config}`);
+ }
+
+ // ================= ADMIN =================
+
+ if (text === "⚙️ مدیریت" && userId == config.adminId) {
+  return ctx.reply(`add 2GB\nadd 5GB\nadd FREE`);
+ }
+
+ if (text.startsWith("add ") && userId == config.adminId) {
+
+  adminMode = true;
+  adminType = text.replace("add ", "");
+
+  return ctx.reply("کانفیگ‌ها را بفرست (done برای پایان)");
+ }
+
+ if (adminMode && userId == config.adminId && text !== "done") {
+
+  let count = 0;
+
+  text.split("\n").forEach(l => {
+   if (l.startsWith("vless://")) {
+    db.addConfig(adminType, l.trim());
+    count++;
+   }
+  });
+
+  return ctx.reply(`✅ ${count} کانفیگ ذخیره شد`);
+ }
+
+ if (text === "done" && userId == config.adminId) {
+  adminMode = false;
+  return ctx.reply("✅ پایان");
+ }
+
 });
 
 // ================= CALLBACK =================
@@ -225,17 +251,17 @@ bot.on("callback_query:data", async (ctx) => {
  const data = ctx.callbackQuery.data;
  const userId = ctx.from.id;
 
- // BACK
- if (data === "back") {
-  return ctx.deleteMessage();
- }
-
- // BUY
+ // BUY PLANS
  const plans = {
   buy_2: { type: "2GB", price: 2 },
   buy_5: { type: "5GB", price: 4 },
   buy_10: { type: "10GB", price: 8 }
  };
+
+ // BACK
+ if (data === "back") return ctx.deleteMessage();
+
+ // ================= REPLY TICKET =================
 
  if (data.startsWith("reply_") && userId == config.adminId) {
 
@@ -243,15 +269,13 @@ bot.on("callback_query:data", async (ctx) => {
   replyMode = true;
 
   return ctx.reply("✍️ پاسخ را بنویسید");
-
  }
 
- // PAYMENT PLACEHOLDER (همون قبلی خودت)
  if (!plans[data]) return;
 
- const plan = plans[data];
-
  try {
+
+  const plan = plans[data];
 
   const res = await axios.post(
    "https://api.nowpayments.io/v1/invoice",
@@ -279,21 +303,19 @@ bot.on("callback_query:data", async (ctx) => {
   return ctx.reply(`💳 لینک پرداخت:\n\n${url}`);
 
  } catch (e) {
+
   return ctx.reply("❌ خطا در پرداخت");
+
  }
 
 });
 
 // ================= SERVER =================
 
-app.get("/", (req, res) => {
- res.send("BOT RUNNING");
-});
+app.get("/", (req, res) => res.send("BOT RUNNING"));
 
-app.listen(process.env.PORT || 3000, () => {
- console.log("Server started");
-});
+app.listen(process.env.PORT || 3000);
 
 bot.start();
 
-console.log("Bot running");
+console.log("Bot Started");
