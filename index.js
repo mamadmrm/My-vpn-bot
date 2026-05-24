@@ -5,54 +5,32 @@ const db = require("./database");
 const config = require("./config.json");
 
 const bot = new Bot(config.botToken);
-
 const app = express();
+
 app.use(express.json());
 
-// ================= PAYMENT CACHE =================
-
-let paymentLinks = {};
-let paymentTimes = {};
-
-// ================= KEYBOARDS =================
+const payments = {};
 
 function mainKeyboard(userId) {
-
  return Keyboard.from([
-
   [{ text: "🛒 خرید اشتراک" }],
-
   [{ text: "📦 سرویس‌های من" }, { text: "🎁 تست رایگان" }],
-
   [{ text: "📞 پشتیبانی" }],
-
   ...(userId == config.adminId
    ? [[{ text: "⚙️ مدیریت" }]]
    : [])
-
  ]).resized();
-
 }
 
-function plansKeyboard() {
-
+function planKeyboard() {
  return Keyboard.from([
-
   [{ text: "2 گیگ - 340 هزار تومان" }],
-
   [{ text: "5 گیگ - 800 هزار تومان" }],
-
   [{ text: "10 گیگ - 1500000 تومان" }],
-
   [{ text: "🔄 بررسی پرداخت" }],
-
   [{ text: "🔙 بازگشت" }]
-
  ]).resized();
-
 }
-
-// ================= START =================
 
 bot.command("start", async (ctx) => {
 
@@ -65,287 +43,156 @@ bot.command("start", async (ctx) => {
  );
 
  await ctx.reply(
-
 `سلام و درود به ربات VPN Mirza خوش آمدید
 
 🔸 زمان سرویس ها نامحدود هست
 
 🔹 تعداد کاربر سرویس ها نامحدود هست
 
-🔸 تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`
-
- ,
+🔸 تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`,
  {
   reply_markup: mainKeyboard(userId)
  });
-
 });
-
-// ================= ADMIN STATE =================
 
 let adminMode = false;
 let adminType = "";
-
-// ================= MESSAGE =================
 
 bot.on("message:text", async (ctx) => {
 
  const text = ctx.message.text;
  const userId = ctx.from.id;
 
- // ================= BUY =================
-
  if (text === "🛒 خرید اشتراک") {
-
-  return ctx.reply(
-   "پلن موردنظر را انتخاب کنید:",
-   {
-    reply_markup: plansKeyboard()
-   }
-  );
-
+  return ctx.reply("پلن را انتخاب کنید:", {
+   reply_markup: planKeyboard()
+  });
  }
-
- // ================= BACK =================
 
  if (text === "🔙 بازگشت") {
-
-  return ctx.reply(
-   "منوی اصلی:",
-   {
-    reply_markup: mainKeyboard(userId)
-   }
-  );
-
+  return ctx.reply("منوی اصلی", {
+   reply_markup: mainKeyboard(userId)
+  });
  }
-
- // ================= SUPPORT =================
 
  if (text === "📞 پشتیبانی") {
-
-  return ctx.reply(
-   "پشتیبانی:\n@Base_forever"
-  );
-
+  return ctx.reply("@Base_forever");
  }
-
- // ================= FREE TEST =================
 
  if (text === "🎁 تست رایگان") {
 
-  let user = db.getUser(userId);
+  const user = db.getUser(userId);
 
   if (user && user.hasFreeTest) {
-
-   return ctx.reply(
-    "❌ شما قبلاً تست رایگان دریافت کرده‌اید"
-   );
-
+   return ctx.reply("❌ قبلاً تست رایگان گرفته‌اید");
   }
 
-  let freeConfig =
-   db.getUnusedConfig("FREE");
+  const cfg = db.getUnusedConfig("FREE");
 
-  if (!freeConfig) {
-
-   return ctx.reply(
-    "❌ تست رایگان موجود نیست"
-   );
-
+  if (!cfg) {
+   return ctx.reply("❌ کانفیگ تست موجود نیست");
   }
 
-  db.useConfig(freeConfig.id);
-
-  db.addPurchase(
-   userId,
-   "20MB TEST",
-   freeConfig.config
-  );
-
+  db.useConfig(cfg.id);
   db.setFreeTestUsed(userId);
 
-  return ctx.reply(
+  db.addPurchase(userId, "20MB TEST", cfg.config);
 
-`🎁 تست رایگان 20MB:
-
-${freeConfig.config}`
-
-  );
-
+  return ctx.reply(`🎁 تست رایگان:\n\n${cfg.config}`);
  }
-
- // ================= MY SERVICES =================
 
  if (text === "📦 سرویس‌های من") {
 
-  let services =
-   db.getPurchases(userId);
+  const services = db.getPurchases(userId);
 
-  if (!services || services.length === 0) {
-
-   return ctx.reply(
-    "❌ سرویسی ندارید"
-   );
-
+  if (!services.length) {
+   return ctx.reply("❌ سرویسی ندارید");
   }
 
   let msg = "📦 سرویس‌های شما:\n\n";
 
-  services.forEach((s, i) => {
-
-   msg += `🔹 ${s.type}\n`;
-   msg += `${s.config}\n\n`;
-
+  services.forEach((s) => {
+   msg += `🔹 ${s.type}\n${s.config}\n\n`;
   });
 
   return ctx.reply(msg);
-
  }
 
- // ================= ADMIN =================
-
- if (
-  text === "⚙️ مدیریت" &&
-  userId == config.adminId
- ) {
+ if (text === "⚙️ مدیریت" && userId == config.adminId) {
 
   return ctx.reply(
-
-`⚙️ مدیریت
-
-ارسال کنید:
+`ارسال کنید:
 
 add 2GB
 add 5GB
 add 10GB
 add FREE`
-
   );
-
  }
 
- // ================= ADD MODE =================
-
- if (
-  userId == config.adminId &&
-  text.startsWith("add ")
- ) {
+ if (text.startsWith("add ") && userId == config.adminId) {
 
   adminMode = true;
-
-  adminType =
-   text.replace("add ", "").trim();
+  adminType = text.replace("add ", "").trim();
 
   return ctx.reply(
-
-`کانفیگ‌ها را ارسال کنید
-
-هر خط = یک کانفیگ
-
-برای پایان:
-done`
-
+"کانفیگ‌ها را بفرست\nهر خط = یک کانفیگ\n\nبرای پایان: done"
   );
-
  }
 
- // ================= SAVE CONFIGS =================
-
- if (
-  adminMode &&
-  userId == config.adminId &&
-  text !== "done"
- ) {
+ if (adminMode && userId == config.adminId && text !== "done") {
 
   let count = 0;
 
   text.split("\n").forEach(line => {
 
-   if (
-    line.trim().startsWith("vless://")
-   ) {
+   if (line.startsWith("vless://")) {
 
-    db.addConfig(
-     adminType,
-     line.trim()
-    );
-
+    db.addConfig(adminType, line.trim());
     count++;
-
    }
-
   });
 
-  return ctx.reply(
-   `✅ ${count} کانفیگ ذخیره شد`
-  );
-
+  return ctx.reply(`✅ ${count} کانفیگ ذخیره شد`);
  }
 
- if (
-  adminMode &&
-  text === "done"
- ) {
-
+ if (text === "done") {
   adminMode = false;
-
-  return ctx.reply(
-   "✅ پایان افزودن"
-  );
-
+  return ctx.reply("✅ پایان");
  }
-
- // ================= PLANS =================
 
  const plans = {
-
   "2 گیگ - 340 هزار تومان": {
    type: "2GB",
    price: 2
   },
-
   "5 گیگ - 800 هزار تومان": {
    type: "5GB",
    price: 4
   },
-
   "10 گیگ - 1500000 تومان": {
    type: "10GB",
    price: 9
   }
-
  };
-
- // ================= CREATE PAYMENT =================
 
  if (plans[text]) {
 
-  if (paymentLinks[userId]) {
+  if (payments[userId]) {
 
-   const elapsed =
-    (Date.now() - paymentTimes[userId]) /
-    1000 / 60;
+   const remain = 20 - Math.floor((Date.now() - payments[userId].time) / 60000);
 
-   if (elapsed < 20) {
-
+   if (remain > 0) {
     return ctx.reply(
+`⚠️ لینک فعال دارید
 
-`⚠️ شما لینک فعال دارید
+${payments[userId].url}
 
-${paymentLinks[userId]}
-
-⏰ اعتبار:
-${Math.floor(20 - elapsed)} دقیقه`
-
+⏰ ${remain} دقیقه باقی مانده`
     );
-
-   } else {
-
-    delete paymentLinks[userId];
-    delete paymentTimes[userId];
-
    }
 
+   delete payments[userId];
   }
 
   try {
@@ -353,139 +200,83 @@ ${Math.floor(20 - elapsed)} دقیقه`
    const plan = plans[text];
 
    const response = await axios.post(
-
     "https://api.nowpayments.io/v1/invoice",
-
     {
      price_amount: plan.price,
      price_currency: "usd",
-     order_id:
-      `${userId}_${Date.now()}`,
-     order_description:
-      plan.type,
-     ipn_callback_url:
-      `${config.domain}/payment-webhook`
+     order_id: `${userId}_${Date.now()}`,
+     order_description: plan.type
     },
-
     {
      headers: {
-      "x-api-key":
-       config.nowPaymentsApiKey
+      "x-api-key": config.nowPaymentsApiKey
      }
     }
-
    );
 
-   const invoice =
-    response.data.invoice_url;
+   const url = response.data.invoice_url;
 
-   paymentLinks[userId] = invoice;
+   payments[userId] = {
+    url,
+    plan: plan.type,
+    time: Date.now()
+   };
 
-   paymentTimes[userId] = Date.now();
-
-   db.setPendingPayment(
-    userId,
-    plan.type
-   );
+   db.setPendingPayment(userId, plan.type);
 
    return ctx.reply(
+`💳 لینک پرداخت:
 
-`💳 لینک پرداخت ساخته شد
+${url}
 
-${invoice}
-
-⏰ اعتبار:
-20 دقیقه
-
-بعد از پرداخت:
-🔄 بررسی پرداخت`
-
+⏰ اعتبار: 20 دقیقه\n\nبعد پرداخت بزن:\n🔄 بررسی پرداخت`
    );
 
   } catch (e) {
 
    console.log(e.response?.data || e.message);
 
-   return ctx.reply(
-    "❌ خطا در ساخت پرداخت"
-   );
-
+   return ctx.reply("❌ خطا در ساخت لینک پرداخت");
   }
-
  }
-
- // ================= CHECK PAYMENT =================
 
  if (text === "🔄 بررسی پرداخت") {
 
-  let pending =
-   db.getPendingPayment(userId);
+  const pending = db.getPendingPayment(userId);
 
   if (!pending) {
-
-   return ctx.reply(
-    "❌ پرداخت فعالی ندارید"
-   );
-
+   return ctx.reply("❌ پرداختی ندارید");
   }
 
-  // تستی:
-  // اینجا بعداً میشه verify واقعی زد
+  const cfg = db.getUnusedConfig(pending.plan);
 
-  let configItem =
-   db.getUnusedConfig(
-    pending.plan
-   );
-
-  if (!configItem) {
-
-   return ctx.reply(
-    "❌ کانفیگ موجود نیست"
-   );
-
+  if (!cfg) {
+   return ctx.reply("❌ کانفیگ موجود نیست");
   }
 
-  db.useConfig(configItem.id);
+  db.useConfig(cfg.id);
 
-  db.addPurchase(
-   userId,
-   pending.plan,
-   configItem.config
-  );
+  db.addPurchase(userId, pending.plan, cfg.config);
 
   db.clearPendingPayment(userId);
 
-  delete paymentLinks[userId];
-  delete paymentTimes[userId];
+  delete payments[userId];
 
   return ctx.reply(
-
-`✅ پرداخت تایید شد
-
-📦 کانفیگ شما:
-
-${configItem.config}`
-
+`✅ کانفیگ شما:\n\n${cfg.config}`
   );
-
  }
-
 });
-
-// ================= SERVER =================
 
 app.get("/", (req, res) => {
- res.send("Bot Running");
+ res.send("BOT RUNNING");
 });
 
-const PORT =
- process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
- console.log("Server Running");
+ console.log("Server Started");
 });
-
-// ================= BOT =================
 
 bot.start();
 
