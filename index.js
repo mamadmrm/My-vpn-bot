@@ -1,138 +1,115 @@
-const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
-const axios = require('axios');
+const { Bot, Keyboard } = require('grammy');
+const express = require('express');
 
-const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
-const bot = new TelegramBot(config.botToken, { polling: true });
+const db = require('./database');
+const config = require('./config.json');
 
-const API_KEY = config.nowPaymentsApiKey;
-const ADMIN_ID = config.adminId;
+const bot = new Bot(config.botToken);
+const app = express();
+app.use(express.json());
 
-// ذخیره پرداخت‌ها
-let payments = {};
+var paymentLinks = {};
+var paymentTimes = {};
 
-// شروع /start
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
+function mainKeyboard() {
+  return Keyboard.from([
+    [{ text: 'خرید اشتراک' }, { text: 'سرویس‌های من' }],
+    [{ text: 'تست رایگان' }, { text: 'پشتیبانی' }]
+  ]).resized();
+}
+
+function planKeyboard() {
+  return Keyboard.from([
+    [{ text: '2 گیگ - 340 هزار تومان' }],
+    [{ text: '5 گیگ - 800 هزار تومان' }],
+    [{ text: '10 گیگ - 1500000 تومان' }],
+    [{ text: 'بازگشت' }]
+  ]).resized();
+}
+
+bot.command('start', async function(ctx) {
+  var userId = ctx.from.id;
+  var username = ctx.from.username || 'unknown';
+  var firstName = ctx.from.first_name || 'User';
   
-  bot.sendMessage(chatId, '👋 سلام! به ربات خوش اومدی.\n\nبرای خرید کانفیگ، دکمه زیر رو بزن:', {
-    reply_markup: {
-      keyboard: [[{ text: '🛒 خرید کانفیگ' }]],
-      resize_keyboard: true
-    }
+  db.createUser(userId, username, firstName);
+  
+  await ctx.reply('به ربات فروش VPN خوش آمدید!', {
+    reply_markup: mainKeyboard()
   });
 });
 
-// دکمه خرید
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
+bot.on('message:text', async function(ctx) {
+  var text = ctx.message.text;
+  var userId = ctx.from.id;
+  var now = Date.now();
   
-  if (text === '🛒 خرید کانفیگ') {
-    showPlans(chatId);
-  }
-});
-
-function showPlans(chatId) {
-  const plans = [
-    { name: '🌐 پروکسی 1 ماهه', price: 5, id: 'proxy_1m' },
-    { name: '🌐 پروکسی 3 ماهه', price: 12, id: 'proxy_3m' },
-    { name: '🌐 پروکسی 6 ماهه', price: 20, id: 'proxy_6m' }
-  ];
-  
-  let keyboard = plans.map(p => [{ text: `${p.name} - ${p.price}$` }]);
-  
-  bot.sendMessage(chatId, '💰 لیست پلن‌ها:', {
-    reply_markup: { keyboard, resize_keyboard: true }
-  });
-}
-
-// وقتی پلن رو انتخاب می‌کنه
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
-  const userId = msg.from.id;
-  
-  const plans = {
-    'پروکسی 1 ماهه - 5$': { price: 5, id: 'proxy_1m' },
-    'پروکسی 3 ماهه - 12$': { price: 12, id: 'proxy_3m' },
-    'پروکسی 6 ماهه - 20$': { price: 20, id: 'proxy_6m' }
-  };
-  
-  if (plans[text]) {
-    const plan = plans[text];
-    await createPayment(chatId, userId, plan);
-  }
-});
-
-async function createPayment(chatId, userId, plan) {
-  try {
-    // ساخت پرداخت در NowPayments
-    const response = await axios.post('https://api.nowpayments.io/v1/payment', {
-      price_amount: plan.price,
-      price_currency: 'usd',
-      order_id: `user_${userId}_${Date.now()}`,
-      order_description: plan.id,
-      ipn_callback_url: 'https://your-domain.com/webhook'
-    }, {
-      headers: { 'x-api-key': API_KEY }
+  if (text === 'خرید اشتراک') {
+    await ctx.reply('پلن را انتخاب کنید:', {
+      reply_markup: planKeyboard()
     });
-    
-    const payment = response.data;
-    payments[payment.payment_id] = {
-      userId,
-      chatId,
-      plan: plan.id,
-      amount: plan.price,
-      status: 'waiting',
-      created: Date.now()
-    };
-    
-    // ارسال لینک پرداخت
-    bot.sendMessage(chatId, `💳 لینک پرداخت:\n\n${payment.payment_url}\n\n⏰ این لینک 20 دقیقه اعتبار داره.`, {
-      reply_markup: {
-        inline_keyboard: [[{ text: '💰 پرداخت کردم', callback_data: `check_${payment.payment_id}` }]]
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
-    bot.sendMessage(chatId, '❌ مشکلی پیش اومد. دوباره تلاش کن.');
-  }
-}
-
-// دکمه بررسی پرداخت
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-  
-  if (data.startsWith('check_')) {
-    const paymentId = data.replace('check_', '');
-    await checkPayment(chatId, paymentId);
-  }
-});
-
-async function checkPayment(chatId, paymentId) {
-  try {
-    const response = await axios.get(`https://api.nowpayments.io/v1/payment/${paymentId}`, {
-      headers: { 'x-api-key': API_KEY }
-    });
-    
-    const payment = response.data;
-    
-    if (payment.payment_status === 'confirmed' || payment.payment_status === 'finished') {
-      // پرداخت موفق!
-      const userPayment = payments[paymentId];
-      
-      bot.sendMessage(chatId, '✅ پرداخت موفق بود! 🎉\n\nکانفیگ شما:\n\n```yaml\nserver: proxy.example.com\nport: 443\nusername: user123\npassword: pass456\n```', { parse_mode: 'Markdown' });
-      
-      // خبر دادن به ادمین
-      bot.sendMessage(ADMIN_ID, `💰 پرداخت جدید!\nکاربر: ${userPayment.userId}\nمبلغ: ${userPayment.amount}$\nپلن: ${userPayment.plan}`);
-      
-    } else {
-      bot.sendMessage(chatId, '⏳ هنوز پرداخت تأیید نشده. لطفاً صبر کن و دوباره تلاش کن.');
+  } else if (text === 'سرویس‌های من') {
+    var user = db.getUser(userId);
+    if (!user || !user.purchases || user.purchases.length === 0) {
+      await ctx.reply('اشتراکی ندارید!');
+      return;
     }
-    
-  } catch (error) {
-    console.error('Error:', erro…
+    await ctx.reply('شما ' + user.purchases.length + ' اشتراک دارید.');
+  } else if (text === 'تست رایگان') {
+    var user = db.getUser(userId);
+    if (user && user.hasFreeTest) {
+      await ctx.reply('قبلا استفاده کرده‌اید!');
+      return;
+    }
+    var freeConfig = db.getConfig('freeTest') || config.freeTestConfig;
+    if (!freeConfig) {
+      await ctx.reply('کانفیگ موجود نیست.');
+      return;
+    }
+    await ctx.reply('تست رایگان:\n\n' + freeConfig);
+    db.setFreeTestUsed(userId);
+  } else if (text === 'پشتیبانی') {
+    await ctx.reply('برای تماس با پشتیبانی به @Base_forever پیام دهید.');
+  } else if (text === 'بازگشت') {
+    await ctx.reply('منوی اصلی:', {
+      reply_markup: mainKeyboard()
+    });
+  } else if (text.indexOf('2 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5737010457';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 2 گیگ - 340 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5737010457\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text.indexOf('5 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=6268245939';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 5 گیگ - 800 هزار تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=6268245939\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text.indexOf('10 گیگ') > -1) {
+    paymentLinks[userId] = 'https://nowpayments.io/payment/?iid=5014091528';
+    paymentTimes[userId] = now;
+    await ctx.reply('💰 پلن 10 گیگ - 1,500,000 تومان\n\nبرای پرداخت روی لینک زیر کلیک کنید:\n\nhttps://nowpayments.io/payment/?iid=5014091528\n\n⚠️ این لینک 20 دقیقه اعتبار دارد.');
+  } else if (text === 'بررسی پرداخت' || text === 'فعالسازی') {
+    if (!paymentLinks[userId]) {
+      await ctx.reply('لینک پرداختی ندارید. ابتدا اشتراک بخرید.');
+      return;
+    }
+    var elapsed = (now - paymentTimes[userId]) / 1000 / 60;
+    if (elapsed > 20) {
+      await ctx.reply('❌ لینک پرداخت منقضی شده است. لطفا دوباره خرید کنید.');
+      delete paymentLinks[userId];
+      delete paymentTimes[userId];
+      return;
+    }
+    await ctx.reply('⏳ لطفا صبر کنید...');
+  }
+});
+
+app.get('/', function(req, res) {
+  res.send('Bot is running!');
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Server running on port ' + PORT);
+});
+
+bot.start();
+console.log('Bot started!');
