@@ -120,9 +120,11 @@ bot.on("message:text", async (ctx) => {
    db.getPurchases(userId);
 
   if (!services.length) {
+
    return ctx.reply(
     "❌ سرویسی ندارید"
    );
+
   }
 
   for (const s of services) {
@@ -232,11 +234,14 @@ ${cfg.config}`
 
   delete ticketMode[userId];
 
-  return ctx.reply("❌ لغو شد");
+  return ctx.reply(
+   "❌ لغو شد"
+  );
 
  }
 
- // ارسال تیکت
+ // ================= SEND TICKET =================
+
  if (ticketMode[userId]) {
 
   delete ticketMode[userId];
@@ -313,7 +318,8 @@ ${text}`
 
 `⚙️ پنل مدیریت
 
-📥 افزودن:
+📥 افزودن کانفیگ:
+
 add 2GB
 add 5GB
 add 10GB
@@ -426,23 +432,20 @@ done`
 
 });
 
-// ================= PAYMENT =================
+// ================= CREATE PAYMENT =================
 
 async function createPayment(ctx, plan) {
 
  const userId = ctx.from.id;
 
- // ضد اسپم
+ // اگر پرداخت فعال دارد
  if (activePayments[userId]) {
 
   return ctx.reply(
 
 `⚠️ شما یک لینک پرداخت فعال دارید
 
-⏰ هنوز معتبر است
-
-لغو:
-/cancelpay`
+❌ ابتدا پرداخت قبلی را لغو کنید`
 
   );
 
@@ -457,8 +460,10 @@ async function createPayment(ctx, plan) {
    {
     price_amount: plan.price,
     price_currency: "usd",
+
     order_id:
      `${userId}_${Date.now()}`,
+
     order_description:
      plan.type
    },
@@ -475,29 +480,36 @@ async function createPayment(ctx, plan) {
   const url =
    res.data.invoice_url;
 
+  // ذخیره پرداخت
   activePayments[userId] = {
+
    url,
    plan: plan.type
+
   };
 
-  // expire 20 min
-  setTimeout(async () => {
+  // تایمر انقضا
+  activePayments[userId].timer =
+   setTimeout(async () => {
 
-   if (!activePayments[userId])
-    return;
+    if (!activePayments[userId])
+     return;
 
-   delete activePayments[userId];
+    delete activePayments[userId];
 
-   try {
+    try {
 
-    await bot.api.sendMessage(
-     userId,
-     "⌛ لینک پرداخت منقضی شد"
-    );
+     await bot.api.sendMessage(
 
-   } catch {}
+      userId,
 
-  }, 20 * 60 * 1000);
+      "⌛ لینک پرداخت منقضی شد"
+
+     );
+
+    } catch {}
+
+   }, 20 * 60 * 1000);
 
   const payKeyboard =
    new InlineKeyboard()
@@ -550,25 +562,6 @@ bot.on("callback_query:data", async (ctx) => {
  const userId =
   ctx.from.id;
 
- const plans = {
-
-  buy_2: {
-   type: "2GB",
-   price: 2
-  },
-
-  buy_5: {
-   type: "5GB",
-   price: 4
-  },
-
-  buy_10: {
-   type: "10GB",
-   price: 8
-  }
-
- };
-
  // ================= REPLY =================
 
  if (
@@ -593,7 +586,10 @@ bot.on("callback_query:data", async (ctx) => {
 
  if (data === "cancel_payment") {
 
-  if (!activePayments[userId]) {
+  const payment =
+   activePayments[userId];
+
+  if (!payment) {
 
    return ctx.reply(
     "❌ پرداخت فعالی ندارید"
@@ -601,7 +597,22 @@ bot.on("callback_query:data", async (ctx) => {
 
   }
 
+  // حذف تایمر
+  clearTimeout(payment.timer);
+
+  // حذف پرداخت
   delete activePayments[userId];
+
+  // تغییر پیام قبلی
+  try {
+
+   await ctx.editMessageText(
+
+    "❌ این لینک پرداخت لغو شده است"
+
+   );
+
+  } catch {}
 
   return ctx.reply(
    "✅ پرداخت لغو شد"
@@ -611,6 +622,25 @@ bot.on("callback_query:data", async (ctx) => {
 
  // ================= BUY =================
 
+ const plans = {
+
+  buy_2: {
+   type: "2GB",
+   price: 2
+  },
+
+  buy_5: {
+   type: "5GB",
+   price: 4
+  },
+
+  buy_10: {
+   type: "10GB",
+   price: 8
+  }
+
+ };
+
  if (!plans[data]) return;
 
  return createPayment(
@@ -619,32 +649,6 @@ bot.on("callback_query:data", async (ctx) => {
  );
 
 });
-
-// ================= CANCEL COMMAND =================
-
-bot.command(
- "cancelpay",
- async (ctx) => {
-
-  const userId =
-   ctx.from.id;
-
-  if (!activePayments[userId]) {
-
-   return ctx.reply(
-    "❌ پرداخت فعالی ندارید"
-   );
-
-  }
-
-  delete activePayments[userId];
-
-  return ctx.reply(
-   "✅ پرداخت لغو شد"
-  );
-
- }
-);
 
 // ================= WEBHOOK =================
 
@@ -692,16 +696,23 @@ app.post(
 
    }
 
+   // استفاده از کانفیگ
    db.useConfig(cfg.id);
 
+   // ذخیره خرید
    db.addPurchase(
     userId,
     payment.plan,
     cfg.config
    );
 
+   // حذف تایمر
+   clearTimeout(payment.timer);
+
+   // حذف پرداخت
    delete activePayments[userId];
 
+   // ارسال کانفیگ
    await bot.api.sendMessage(
 
     userId,
@@ -742,17 +753,26 @@ ${cfg.config}`
 // ================= SERVER =================
 
 app.get("/", (req, res) => {
+
  res.send("BOT RUNNING");
+
 });
 
 app.listen(
+
  process.env.PORT || 3000,
+
  () => {
-  console.log("Server Started");
+
+  console.log(
+   "Server Started"
+  );
+
  }
+
 );
 
-// ================= BOT =================
+// ================= START BOT =================
 
 bot.start();
 
