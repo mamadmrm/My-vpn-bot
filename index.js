@@ -515,7 +515,7 @@ async function createPayment(ctx, plan) {
    new InlineKeyboard()
 
    .url(
-    "💳 پرداخت",
+    "💳 پرداخت ارز دیجیتال",
     url
    )
 
