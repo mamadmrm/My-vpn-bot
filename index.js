@@ -8,83 +8,60 @@ const bot = new Bot(config.botToken);
 const app = express();
 app.use(express.json());
 
+// کیبورد اصلی
 function mainKeyboard() {
   return Keyboard.from([
-    [{ text: 'خرید اشتراک' }, { text: 'سرویس‌های من' }],
-    [{ text: 'تست رایگان' }, { text: 'پشتیبانی' }]
+    [{ text: '🛒 خرید اشتراک' }, { text: '📦 سرویس‌های من' }],
+    [{ text: '🎁 تست رایگان' }, { text: '📞 پشتیبانی' }]
   ]).resized();
 }
 
+// کیبورد پلن‌ها
 function planKeyboard() {
   return Keyboard.from([
-    [{ text: '2 گیگ - 2 دلار' }],
-    [{ text: '5 گیگ - 4 دلار' }],
-    [{ text: '10 گیگ - 9 دلار' }],
-    [{ text: 'بازگشت' }]
+    [{ text: '💾 ۲ گیگ - ۳۴۰ هزار تومان' }],
+    [{ text: '💾 ۵ گیگ - ۸۰۰ هزار تومان' }],
+    [{ text: '💾 ۱۰ گیگ - ۱,۵۰۰,۰۰۰ تومان' }],
+    [{ text: '🔙 بازگشت' }]
   ]).resized();
 }
 
-bot.command('start', async (ctx) => {
-  const userId = ctx.from.id;
-  const username = ctx.from.username || 'unknown';
-  const firstName = ctx.from.first_name || 'User';
-  
-  db.createUser(userId, username, firstName);
-  
-  await ctx.reply('به ربات فروش VPN خوش آمدید!', {
-    reply_markup: mainKeyboard()
-  });
-});
+// کیبورد مدیر
+function adminKeyboard() {
+  return Keyboard.from([
+    [{ text: '➕ افزودن کانفیگ ۲ گیگ' }],
+    [{ text: '➕ افزودن کانفیگ ۵ گیگ' }],
+    [{ text: '➕ افزودن کانفیگ ۱۰ گیگ' }],
+    [{ text: '➕ افزودن کانفیگ تست رایگان' }],
+    [{ text: '👥 لیست کاربران' }, { text: '📊 آمار' }],
+    [{ text: '🔙 بازگشت' }]
+  ]).resized();
+}
 
-bot.on('message:text', async (ctx) => {
-  const text = ctx.message.text;
-  const userId = ctx.from.id;
-  
-  if (text === 'خرید اشتراک') {
-    await ctx.reply('پلن مورد نظر را انتخاب کنید:', {
-      reply_markup: planKeyboard()
+// ساخت فاکتور Plisio
+async function createPlisioInvoice(amount, userId, planId) {
+  try {
+    const response = await fetch('https://plisio.net/api/v1/invoices/new', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + config.plisioSecret
+      },
+      body: JSON.stringify({
+        amount: amount / 50000, // تبدیل تومان به دلار (هر دلار حدود ۵۰۰۰۰ تومان)
+        currency: 'USD',
+        order_number: userId + '_' + planId + '_' + Date.now(),
+        order_name: 'VPN ' + planId,
+        callback_url: 'https://your-project-name.up.railway.app/webhook?userId=' + userId + '&planId=' + planId,
+        redirect_url: 'https://t.me/' + bot.bot.username
+      })
     });
+    return await response.json();
+  } catch (e) {
+    console.error('Plisio Error:', e);
+    return null;
   }
-  
-  else if (text === 'سرویس‌های من') {
-    const user = db.getUser(userId);
-    if (!user || !user.purchases || user.purchases.length === 0) {
-      await ctx.reply('هنوز اشتراکی خریداری نکرده‌اید!');
-      return;
-    }
-    await ctx.reply('سرویس‌های شما: ' + user.purchases.length);
-  }
-  
-  else if (text === 'تست رایگان') {
-    const user = db.getUser(userId);
-    if (user && user.hasFreeTest) {
-      await ctx.reply('قبلا از تست رایگان استفاده کرده‌اید!');
-      return;
-    }
-    const freeConfig = db.getConfig('freeTest') || 'free-test-config';
-    await ctx.reply('تست رایگان:\n\n' + freeConfig);
-    db.setFreeTestUsed(userId);
-  }
-  
-  else if (text === 'پشتیبانی') {
-    await ctx.reply('به @admin پیام دهید.');
-  }
-  
-  else if (text === 'بازگشت') {
-    await ctx.reply('منوی اصلی', {
-      reply_markup: mainKeyboard()
-    });
-  }
-});
+}
 
-app.get('/', (req, res) => {
-  res.send('Bot is running!');
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log('Server running on port ' + PORT);
-});
-
-bot.start();
-console.log('Bot started!');
+// دستور /start
+bot.command('start', as…
