@@ -107,8 +107,14 @@ bot.on('message:text', async function(ctx) {
       await ctx.reply('برای پرداخت به @Base_forever پیام دهید.');
     }
   } else if (isAdmin) {
-    if (text.indexOf('افزودن کانفیگ') > -1) {
-      await ctx.reply('کانفیگ را بفرستید:');
+    if (text === 'افزودن کانفیگ 2 گیگ') {
+      await ctx.reply('کانفیگ 2 گیگ را بفرستید:');
+    } else if (text === 'افزودن کانفیگ 5 گیگ') {
+      await ctx.reply('کانفیگ 5 گیگ را بفرستید:');
+    } else if (text === 'افزودن کانفیگ 10 گیگ') {
+      await ctx.reply('کانفیگ 10 گیگ را بفرستید:');
+    } else if (text === 'افزودن کانفیگ تست رایگان') {
+      await ctx.reply('کانفیگ تست رایگان را بفرستید:');
     } else if (text === 'لیست کاربران') {
       var users = db.getAllUsers();
       await ctx.reply('کاربران: ' + users.length);
@@ -116,19 +122,4 @@ bot.on('message:text', async function(ctx) {
       var users = db.getAllUsers();
       await ctx.reply('آمار: ' + users.length + ' کاربر');
     } else if (text.indexOf('vless://') > -1 || text.indexOf('vmess://') > -1 || text.indexOf('trojan://') > -1) {
-      await ctx.reply('کانفیگ ذخیره شد!');
-    }
-  }
-});
-
-app.get('/', function(req, res) {
-  res.send('Bot is running!');
-});
-
-var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log('Server running on port ' + PORT);
-});
-
-bot.start();
-console.log('Bot started!');
+      await ctx.reply('کانفیگ ذخیره شد…
