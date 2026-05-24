@@ -11,11 +11,12 @@ const app = express();
 
 app.use(express.json());
 
-// ================= ACTIVE PAYMENTS =================
+// ================= STATE =================
 
 const activePayments = {};
 const ticketMode = {};
 const adminMode = {};
+const replyMode = {};
 
 // ================= KEYBOARD =================
 
@@ -29,16 +30,12 @@ function mainKeyboard(userId) {
   ],
 
   [
-   { text: "💰 کیف پول" },
-   { text: "🎁 تست رایگان" }
-  ],
-
-  [
+   { text: "🎁 تست رایگان" },
    { text: "🎫 ارسال تیکت" }
   ],
 
   ...(userId == config.adminId
-   ? [[{ text: "⚙️ مدیریت" }]]
+   ? [[{ text: "⚙️ مدیریت کانفیگ" }]]
    : [])
 
  ]).resized();
@@ -62,8 +59,10 @@ bot.command("start", async (ctx) => {
 `سلام و درود به ربات VPN Mirza خوش آمدید
 
 🔸 زمان سرویس ها نامحدود هست
-🔹 تعداد کاربر نامحدود
-🔸 پشتیبانی دائمی`
+
+🔹 تعداد کاربر سرویس ها نامحدود هست
+
+🔸 تیم وی پی ان میرزا تمام تلاشش رو میکنه تا همه متصل بمونیم`
 
  ,
  {
@@ -79,33 +78,30 @@ bot.on("message:text", async (ctx) => {
  const text = ctx.message.text;
  const userId = ctx.from.id;
 
- // ================= WALLET =================
-
- if (text === "💰 کیف پول") {
-
-  const balance = db.getBalance(userId);
-
-  return ctx.reply(
-`💰 موجودی کیف پول:
-
-${balance} تومان`
-  );
-
- }
-
  // ================= BUY =================
 
  if (text === "🔐 خرید اشتراک") {
 
   const keyboard = new InlineKeyboard()
 
-   .text("2GB - 340,000", "buy_2")
+   .text(
+    "2 گیگ - 340 هزار تومان",
+    "buy_2"
+   )
+
    .row()
 
-   .text("5GB - 800,000", "buy_5")
+   .text(
+    "5 گیگ - 800 هزار تومان",
+    "buy_5"
+   )
+
    .row()
 
-   .text("10GB - 1,500,000", "buy_10");
+   .text(
+    "10 گیگ - 1,500,000 تومان",
+    "buy_10"
+   );
 
   return ctx.reply(
    "📦 پلن موردنظر را انتخاب کنید",
@@ -116,27 +112,35 @@ ${balance} تومان`
 
  }
 
- // ================= MY SERVICES =================
+ // ================= SERVICES =================
 
  if (text === "🛍 سرویس‌های من") {
 
-  const services = db.getPurchases(userId);
+  const services =
+   db.getPurchases(userId);
 
   if (!services.length) {
-   return ctx.reply("❌ سرویسی ندارید");
+   return ctx.reply(
+    "❌ سرویسی ندارید"
+   );
   }
 
   for (const s of services) {
 
    await ctx.reply(
+
 `📦 ${s.type}
 
 ${s.config}`
+
    );
 
    try {
 
-    const qr = await QRCode.toBuffer(s.config);
+    const qr =
+     await QRCode.toBuffer(
+      s.config
+     );
 
     await ctx.replyWithPhoto(
      new Blob([qr])
@@ -152,19 +156,30 @@ ${s.config}`
 
  if (text === "🎁 تست رایگان") {
 
-  const user = db.getUser(userId);
+  const user =
+   db.getUser(userId);
 
   if (user.free_used) {
-   return ctx.reply("❌ قبلاً استفاده شده");
+
+   return ctx.reply(
+    "❌ قبلاً تست دریافت کرده‌اید"
+   );
+
   }
 
-  const cfg = db.getConfig("FREE");
+  const cfg =
+   db.getConfig("FREE");
 
   if (!cfg) {
-   return ctx.reply("❌ تست موجود نیست");
+
+   return ctx.reply(
+    "❌ تست موجود نیست"
+   );
+
   }
 
   db.useConfig(cfg.id);
+
   db.setFreeUsed(userId);
 
   db.addPurchase(
@@ -174,14 +189,19 @@ ${s.config}`
   );
 
   await ctx.reply(
+
 `🎁 تست رایگان:
 
 ${cfg.config}`
+
   );
 
   try {
 
-   const qr = await QRCode.toBuffer(cfg.config);
+   const qr =
+    await QRCode.toBuffer(
+     cfg.config
+    );
 
    await ctx.replyWithPhoto(
     new Blob([qr])
@@ -198,10 +218,12 @@ ${cfg.config}`
   ticketMode[userId] = true;
 
   return ctx.reply(
+
 `✍️ پیام خود را ارسال کنید
 
 لغو:
 /cancel`
+
   );
 
  }
@@ -214,6 +236,7 @@ ${cfg.config}`
 
  }
 
+ // ارسال تیکت
  if (ticketMode[userId]) {
 
   delete ticketMode[userId];
@@ -226,32 +249,117 @@ ${cfg.config}`
 
 👤 ${userId}
 
-📩 ${text}`
+📩 ${text}`,
+
+   {
+    reply_markup: {
+     inline_keyboard: [
+      [
+       {
+        text: "💬 پاسخ",
+        callback_data: `reply_${userId}`
+       }
+      ]
+     ]
+    }
+   }
 
   );
 
-  return ctx.reply("✅ ارسال شد");
+  return ctx.reply(
+   "✅ تیکت ارسال شد"
+  );
 
  }
 
- // ================= ADMIN =================
+ // ================= ADMIN REPLY =================
 
  if (
-  text === "⚙️ مدیریت"
+  userId == config.adminId
+  &&
+  replyMode[userId]
+ ) {
+
+  const target =
+   replyMode[userId];
+
+  await bot.api.sendMessage(
+
+   target,
+
+`📩 پاسخ پشتیبانی:
+
+${text}`
+
+  );
+
+  delete replyMode[userId];
+
+  return ctx.reply(
+   "✅ پاسخ ارسال شد"
+  );
+
+ }
+
+ // ================= ADMIN PANEL =================
+
+ if (
+  text === "⚙️ مدیریت کانفیگ"
   &&
   userId == config.adminId
  ) {
 
   return ctx.reply(
-`ارسال:
 
+`⚙️ پنل مدیریت
+
+📥 افزودن:
 add 2GB
 add 5GB
 add 10GB
-add FREE`
+add FREE
+
+📊 آمار:
+stats`
+
   );
 
  }
+
+ // ================= STATS =================
+
+ if (
+  text === "stats"
+  &&
+  userId == config.adminId
+ ) {
+
+  const c2 =
+   db.getConfigsCount("2GB");
+
+  const c5 =
+   db.getConfigsCount("5GB");
+
+  const c10 =
+   db.getConfigsCount("10GB");
+
+  const free =
+   db.getConfigsCount("FREE");
+
+  return ctx.reply(
+
+`📊 آمار کانفیگ‌ها
+
+2GB: ${c2}
+5GB: ${c5}
+10GB: ${c10}
+FREE: ${free}`
+
+  );
+
+ }
+
+ // ================= ADD CONFIG =================
 
  if (
   text.startsWith("add ")
@@ -263,12 +371,14 @@ add FREE`
    text.replace("add ", "");
 
   return ctx.reply(
-`کانفیگ‌ها را بفرست
+
+`📥 کانفیگ‌ها را ارسال کنید
 
 هر خط = یک کانفیگ
 
 پایان:
 done`
+
   );
 
  }
@@ -283,7 +393,9 @@ done`
 
    delete adminMode[userId];
 
-   return ctx.reply("✅ پایان");
+   return ctx.reply(
+    "✅ پایان افزودن"
+   );
 
   }
 
@@ -324,12 +436,14 @@ async function createPayment(ctx, plan) {
  if (activePayments[userId]) {
 
   return ctx.reply(
-`⚠️ لینک پرداخت فعال دارید
 
-${activePayments[userId].url}
+`⚠️ شما یک لینک پرداخت فعال دارید
+
+⏰ هنوز معتبر است
 
 لغو:
 /cancelpay`
+
   );
 
  }
@@ -385,13 +499,32 @@ ${activePayments[userId].url}
 
   }, 20 * 60 * 1000);
 
+  const payKeyboard =
+   new InlineKeyboard()
+
+   .url(
+    "💳 پرداخت",
+    url
+   )
+
+   .row()
+
+   .text(
+    "❌ لغو پرداخت",
+    "cancel_payment"
+   );
+
   return ctx.reply(
-`💳 لینک پرداخت:
 
-${url}
+`💳 لینک پرداخت ساخته شد
 
-⏰ اعتبار: 20 دقیقه`
-  );
+⏰ اعتبار:
+20 دقیقه`
+
+  ,
+  {
+   reply_markup: payKeyboard
+  });
 
  } catch (e) {
 
@@ -414,6 +547,9 @@ bot.on("callback_query:data", async (ctx) => {
  const data =
   ctx.callbackQuery.data;
 
+ const userId =
+  ctx.from.id;
+
  const plans = {
 
   buy_2: {
@@ -433,6 +569,48 @@ bot.on("callback_query:data", async (ctx) => {
 
  };
 
+ // ================= REPLY =================
+
+ if (
+  data.startsWith("reply_")
+  &&
+  userId == config.adminId
+ ) {
+
+  const target =
+   data.split("_")[1];
+
+  replyMode[userId] =
+   target;
+
+  return ctx.reply(
+   "✍️ پاسخ را ارسال کنید"
+  );
+
+ }
+
+ // ================= CANCEL PAYMENT =================
+
+ if (data === "cancel_payment") {
+
+  if (!activePayments[userId]) {
+
+   return ctx.reply(
+    "❌ پرداخت فعالی ندارید"
+   );
+
+  }
+
+  delete activePayments[userId];
+
+  return ctx.reply(
+   "✅ پرداخت لغو شد"
+  );
+
+ }
+
+ // ================= BUY =================
+
  if (!plans[data]) return;
 
  return createPayment(
@@ -442,24 +620,27 @@ bot.on("callback_query:data", async (ctx) => {
 
 });
 
-// ================= CANCEL PAYMENT =================
+// ================= CANCEL COMMAND =================
 
 bot.command(
  "cancelpay",
  async (ctx) => {
 
-  const userId = ctx.from.id;
+  const userId =
+   ctx.from.id;
 
   if (!activePayments[userId]) {
+
    return ctx.reply(
     "❌ پرداخت فعالی ندارید"
    );
+
   }
 
   delete activePayments[userId];
 
   return ctx.reply(
-   "✅ لینک لغو شد"
+   "✅ پرداخت لغو شد"
   );
 
  }
@@ -571,7 +752,7 @@ app.listen(
  }
 );
 
-// ================= START BOT =================
+// ================= BOT =================
 
 bot.start();
 
