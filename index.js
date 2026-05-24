@@ -22,13 +22,15 @@ function mainKeyboard(userId) {
 
  return Keyboard.from([
 
-  [{ text: "🔐 خرید اشتراک" }],
+  [
+   { text: "🔐 خرید اشتراک" },
+   { text: "🛍 سرویس‌های من" }
+  ],
 
-  [{ text: "🛍 سرویس‌های من" }],
-
-  [{ text: "🎁 تست رایگان" }],
-
-  [{ text: "🎫 ارسال تیکت" }],
+  [
+   { text: "🎁 تست رایگان" },
+   { text: "🎫 ارسال تیکت" }
+  ],
 
   ...(userId == config.adminId
    ? [[{ text: "⚙️ مدیریت" }]]
@@ -523,9 +525,9 @@ ${payments[userId].url}
 
  }
 
- // ================= CHECK =================
-
 });
+
+// ================= CHECK PAYMENT =================
 
 bot.callbackQuery(
  "check_payment",
