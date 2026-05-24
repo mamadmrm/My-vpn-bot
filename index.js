@@ -1,4 +1,4 @@
-const { Bot, Keyboard, InlineKeyboard } = require('grammy');
+const { Bot, Keyboard } = require('grammy');
 const express = require('express');
 
 const db = require('./database');
@@ -24,17 +24,6 @@ function planKeyboard() {
   ]).resized();
 }
 
-function adminKeyboard() {
-  var ikb = new InlineKeyboard();
-  ikb.text('🔴 کانفیگ 2 گیگ', 'cfg_2gb').row();
-  ikb.text('🔴 کانفیگ 5 گیگ', 'cfg_5gb').row();
-  ikb.text('🔴 کانفیگ 10 گیگ', 'cfg_10gb').row();
-  ikb.text('🔴 کانفیگ تست رایگان', 'cfg_free').row();
-  ikb.text('👥 لیست کاربران', 'users').row();
-  ikb.text('📊 آمار', 'stats');
-  return ikb;
-}
-
 bot.command('start', async function(ctx) {
   var userId = ctx.from.id;
   var username = ctx.from.username || 'unknown';
@@ -47,48 +36,9 @@ bot.command('start', async function(ctx) {
   });
 });
 
-bot.command('admin', async function(ctx) {
-  if (ctx.from.id != config.adminId) {
-    await ctx.reply('دسترسی غیرمجاز');
-    return;
-  }
-  
-  await ctx.reply('پنل مدیریت:', {
-    reply_markup: adminKeyboard()
-  });
-});
-
-bot.on('callback_query', async function(ctx) {
-  var callbackData = ctx.callbackQuery.data;
-  var userId = ctx.from.id;
-  
-  if (callbackData === 'cfg_2gb') {
-    await ctx.answerCallbackQuery('کانفیگ 2 گیگ را بفرستید');
-    await ctx.reply('کانفیگ 2 گیگ را بفرستید:');
-  } else if (callbackData === 'cfg_5gb') {
-    await ctx.answerCallbackQuery('کانفیگ 5 گیگ را بفرستید');
-    await ctx.reply('کانفیگ 5 گیگ را بفرستید:');
-  } else if (callbackData === 'cfg_10gb') {
-    await ctx.answerCallbackQuery('کانفیگ 10 گیگ را بفرستید');
-    await ctx.reply('کانفیگ 10 گیگ را بفرستید:');
-  } else if (callbackData === 'cfg_free') {
-    await ctx.answerCallbackQuery('کانفیگ تست رایگان را بفرستید');
-    await ctx.reply('کانفیگ تست رایگان را بفرستید:');
-  } else if (callbackData === 'users') {
-    var users = db.getAllUsers();
-    await ctx.answerCallbackQuery('OK');
-    await ctx.reply('کاربران: ' + users.length);
-  } else if (callbackData === 'stats') {
-    var users = db.getAllUsers();
-    await ctx.answerCallbackQuery('OK');
-    await ctx.reply('آمار: ' + users.length + ' کاربر');
-  }
-});
-
 bot.on('message:text', async function(ctx) {
   var text = ctx.message.text;
   var userId = ctx.from.id;
-  var isAdmin = userId == config.adminId;
   
   if (text === 'خرید اشتراک') {
     await ctx.reply('پلن را انتخاب کنید:', {
@@ -120,7 +70,31 @@ bot.on('message:text', async function(ctx) {
     await ctx.reply('منوی اصلی:', {
       reply_markup: mainKeyboard()
     });
-  } else if (text.indexOf('گیگ') > -1 && text.indexOf('کانفیگ') === -1) {
+  } else if (text.indexOf('گیگ') > -1) {
     var planId = null;
     if (text.indexOf('2 گیگ') > -1) planId = '2gb';
-    else if (text.in…
+    else if (text.indexOf('5 گیگ') > -1) planId = '5gb';
+    else if (text.indexOf('10 گیگ') > -1) planId = '10gb';
+    
+    if (planId) {
+      var cfg = db.getConfig(planId);
+      if (!cfg) {
+        await ctx.reply('این پلن فعال نیست.');
+        return;
+      }
+      await ctx.reply('برای پرداخت به @Base_forever پیام دهید.');
+    }
+  }
+});
+
+app.get('/', function(req, res) {
+  res.send('Bot is running!');
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Server running on port ' + PORT);
+});
+
+bot.start();
+console.log('Bot started!');
