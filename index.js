@@ -55,9 +55,9 @@ bot.on('message', async (msg) => {
   const userId = msg.from.id;
   
   const plans = {
-    'اشتراک 1 ماهه - 5$': { price: 5, id: 'proxy_1m' },
-    'اشتراک 1 ماهه - 12$': { price: 12, id: 'proxy_3m' },
-    'اشتراک 1 ماهه - 20$': { price: 20, id: 'proxy_6m' }
+    'پروکسی 1 ماهه - 5$': { price: 5, id: 'proxy_1m' },
+    'پروکسی 3 ماهه - 12$': { price: 12, id: 'proxy_3m' },
+    'پروکسی 6 ماهه - 20$': { price: 20, id: 'proxy_6m' }
   };
   
   if (plans[text]) {
