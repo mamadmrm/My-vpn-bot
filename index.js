@@ -1,3 +1,5 @@
+const BOT_ACTIVE = false;
+if (!BOT_ACTIVE) return;
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
 const axios = require("axios");
