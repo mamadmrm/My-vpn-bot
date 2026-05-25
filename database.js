@@ -134,3 +134,24 @@ module.exports = {
  }
 
 };
+getAllUsers() {
+
+ return db.prepare(`
+ SELECT id FROM users
+ `).all();
+
+}
+module.exports = {
+
+ createUser,
+ getUser,
+ addBalance,
+ getBalance,
+ setFreeUsed,
+ addConfig,
+ getConfig,
+ useConfig,
+ addPurchase,
+ getPurchases,
+ getAllUsers   // 👈 اینو اضافه کن
+};
