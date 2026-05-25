@@ -18,7 +18,6 @@ const ticketMode = {};
 const adminMode = {};
 const replyMode = {};
 
-// ✅ وضعیت ربات
 let botEnabled = true;
 
 // ================= KEYBOARD =================
@@ -51,7 +50,7 @@ bot.command("start", async (ctx) => {
 
  const userId = ctx.from.id;
 
- // ✅ اگر ربات خاموش بود
+ // اگر خاموش بود
  if (!botEnabled && userId != config.adminId) {
   return ctx.reply("⛔️ ربات در حال حاضر خاموش است");
  }
@@ -86,11 +85,6 @@ bot.on("message:text", async (ctx) => {
  const text = ctx.message.text;
  const userId = ctx.from.id;
 
- // ✅ اگر خاموش بود
- if (!botEnabled && userId != config.adminId) {
-  return ctx.reply("⛔️ ربات در حال حاضر خاموش است");
- }
-
  // ================= BOT CONTROL =================
 
  if (userId == config.adminId && text === "/off") {
@@ -105,6 +99,11 @@ bot.on("message:text", async (ctx) => {
   botEnabled = true;
 
   return ctx.reply("✅ ربات روشن شد");
+ }
+
+ // اگر خاموش بود
+ if (!botEnabled && userId != config.adminId) {
+  return ctx.reply("⛔️ ربات در حال حاضر خاموش است");
  }
 
  // ================= BUY =================
@@ -213,10 +212,10 @@ add FREE
 
 stats
 
-خاموش کردن ربات:
+خاموش کردن:
 /off
 
-روشن کردن ربات:
+روشن کردن:
 /on`
   );
 
@@ -319,7 +318,7 @@ bot.on("callback_query:data", async (ctx) => {
  const data = ctx.callbackQuery.data;
  const userId = ctx.from.id;
 
- // ✅ اگر خاموش بود
+ // اگر خاموش بود
  if (!botEnabled && userId != config.adminId) {
   return ctx.reply("⛔️ ربات در حال حاضر خاموش است");
  }
@@ -350,7 +349,9 @@ bot.on("callback_query:data", async (ctx) => {
  }
 
  if (data.startsWith("reply_")) {
+
   replyMode[config.adminId] = data.split("_")[1];
+
   return ctx.reply("✍️ پاسخ را ارسال کنید");
  }
 
@@ -363,4 +364,5 @@ app.get("/", (req, res) => res.send("OK"));
 app.listen(3000);
 
 bot.start();
+
 console.log("Bot Started");
