@@ -100,7 +100,42 @@ bot.on("message:text", async (ctx) => {
 
   return ctx.reply("✅ ربات روشن شد");
  }
+// ================= BROADCAST =================
 
+ if (
+  text.startsWith("/broadcast ")
+  &&
+  userId == config.adminId
+ ) {
+
+  const message =
+   text.replace("/broadcast ", "");
+
+  const users =
+   db.getAllUsers();
+
+  let sent = 0;
+
+  for (const user of users) {
+
+   try {
+
+    await bot.api.sendMessage(
+     user.id,
+     message
+    );
+
+    sent++;
+
+   } catch {}
+
+  }
+
+  return ctx.reply(
+   `✅ پیام برای ${sent} نفر ارسال شد`
+  );
+
+ }
  // اگر خاموش بود
  if (!botEnabled && userId != config.adminId) {
   return ctx.reply("⛔️ ربات در حال حاضر خاموش است");
