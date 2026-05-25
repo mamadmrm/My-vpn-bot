@@ -2,6 +2,8 @@ const Database = require("better-sqlite3");
 
 const db = new Database("database.db");
 
+// ================= TABLES =================
+
 // USERS
 db.prepare(`
 CREATE TABLE IF NOT EXISTS users (
@@ -33,14 +35,18 @@ CREATE TABLE IF NOT EXISTS purchases (
 )
 `).run();
 
+// ================= FUNCTIONS =================
+
 module.exports = {
+
+ // ---------- USERS ----------
 
  createUser(id, username, first_name) {
 
   db.prepare(`
-  INSERT OR IGNORE INTO users
-  (id, username, first_name)
-  VALUES (?, ?, ?)
+   INSERT OR IGNORE INTO users
+   (id, username, first_name)
+   VALUES (?, ?, ?)
   `).run(id, username, first_name);
 
  },
@@ -48,8 +54,8 @@ module.exports = {
  getUser(id) {
 
   return db.prepare(`
-  SELECT * FROM users
-  WHERE id=?
+   SELECT * FROM users
+   WHERE id=?
   `).get(id);
 
  },
@@ -57,9 +63,9 @@ module.exports = {
  addBalance(id, amount) {
 
   db.prepare(`
-  UPDATE users
-  SET balance = balance + ?
-  WHERE id=?
+   UPDATE users
+   SET balance = balance + ?
+   WHERE id=?
   `).run(amount, id);
 
  },
@@ -67,8 +73,8 @@ module.exports = {
  getBalance(id) {
 
   const user = db.prepare(`
-  SELECT balance FROM users
-  WHERE id=?
+   SELECT balance FROM users
+   WHERE id=?
   `).get(id);
 
   return user?.balance || 0;
@@ -78,18 +84,20 @@ module.exports = {
  setFreeUsed(id) {
 
   db.prepare(`
-  UPDATE users
-  SET free_used=1
-  WHERE id=?
+   UPDATE users
+   SET free_used=1
+   WHERE id=?
   `).run(id);
 
  },
 
+ // ---------- CONFIGS ----------
+
  addConfig(type, config) {
 
   db.prepare(`
-  INSERT INTO configs(type, config)
-  VALUES (?, ?)
+   INSERT INTO configs(type, config)
+   VALUES (?, ?)
   `).run(type, config);
 
  },
@@ -97,9 +105,9 @@ module.exports = {
  getConfig(type) {
 
   return db.prepare(`
-  SELECT * FROM configs
-  WHERE type=? AND used=0
-  LIMIT 1
+   SELECT * FROM configs
+   WHERE type=? AND used=0
+   LIMIT 1
   `).get(type);
 
  },
@@ -107,19 +115,21 @@ module.exports = {
  useConfig(id) {
 
   db.prepare(`
-  UPDATE configs
-  SET used=1
-  WHERE id=?
+   UPDATE configs
+   SET used=1
+   WHERE id=?
   `).run(id);
 
  },
 
+ // ---------- PURCHASES ----------
+
  addPurchase(user_id, type, config) {
 
   db.prepare(`
-  INSERT INTO purchases
-  (user_id, type, config)
-  VALUES (?, ?, ?)
+   INSERT INTO purchases
+   (user_id, type, config)
+   VALUES (?, ?, ?)
   `).run(user_id, type, config);
 
  },
@@ -127,31 +137,20 @@ module.exports = {
  getPurchases(user_id) {
 
   return db.prepare(`
-  SELECT * FROM purchases
-  WHERE user_id=?
+   SELECT * FROM purchases
+   WHERE user_id=?
   `).all(user_id);
+
+ },
+
+ // ---------- BROADCAST ----------
+
+ getAllUsers() {
+
+  return db.prepare(`
+   SELECT id FROM users
+  `).all();
 
  }
 
-};
-getAllUsers() {
-
- return db.prepare(`
- SELECT id FROM users
- `).all();
-
-}
-module.exports = {
-
- createUser,
- getUser,
- addBalance,
- getBalance,
- setFreeUsed,
- addConfig,
- getConfig,
- useConfig,
- addPurchase,
- getPurchases,
- getAllUsers   // 👈 اینو اضافه کن
 };
