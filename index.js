@@ -14,6 +14,8 @@ app.use(express.json());
 // ================= STATE =================
 
 const activePayments = {};
+const ticketMode = {};
+const replyMode = {};
 const processedTx = new Set();
 
 // ================= TON WALLET =================
@@ -32,31 +34,92 @@ function mainKeyboard(userId) {
   [
    { text: "🎁 تست رایگان" },
    { text: "🎫 ارسال تیکت" }
-  ]
+  ],
+  ...(userId == config.adminId
+   ? [[{ text: "⚙️ مدیریت کانفیگ" }]]
+   : [])
  ]).resized();
 }
 
-// ================= START =================
+// ================= START (UNCHANGED) =================
 
 bot.command("start", async (ctx) => {
- await ctx.reply("سلام 👋", {
-  reply_markup: mainKeyboard(ctx.from.id)
- });
+ const userId = ctx.from.id;
+
+ db.createUser(
+  userId,
+  ctx.from.username || "unknown",
+  ctx.from.first_name || "User"
+ );
+
+ await ctx.reply(
+`سلام و درود به ربات VPN Mirza
+
+🔸 سرویس ها نامحدود
+🔹 پرداخت TON فعال`
+ ,
+ { reply_markup: mainKeyboard(userId) }
+ );
 });
 
-// ================= CREATE PAYMENT =================
+// ================= MESSAGE (UNCHANGED FEATURES) =================
+
+bot.on("message:text", async (ctx) => {
+
+ const text = ctx.message.text;
+ const userId = ctx.from.id;
+
+ // BUY
+ if (text === "🔐 خرید اشتراک") {
+
+  const kb = new InlineKeyboard()
+   .text("2 گیگ - 1.28 TON", "buy_2")
+   .row()
+   .text("5 گیگ - 2.14 TON", "buy_5")
+   .row()
+   .text("10 گیگ - 4.45 TON", "buy_10");
+
+  return ctx.reply("📦 انتخاب پلن", { reply_markup: kb });
+ }
+
+ // TICKET (UNCHANGED)
+ if (text === "🎫 ارسال تیکت") {
+  ticketMode[userId] = true;
+  return ctx.reply("✍️ پیام خود را ارسال کنید");
+ }
+
+ if (ticketMode[userId]) {
+  delete ticketMode[userId];
+
+  await bot.api.sendMessage(
+   config.adminId,
+   `🎫 تیکت جدید\n👤 ${userId}\n\n${text}`,
+   {
+    reply_markup: {
+     inline_keyboard: [
+      [{ text: "💬 پاسخ", callback_data: `reply_${userId}` }]
+     ]
+    }
+   }
+  );
+
+  return ctx.reply("✅ ارسال شد");
+ }
+
+});
+
+// ================= PAYMENT (ONLY FIXED PART) =================
 
 async function createPayment(ctx, plan) {
 
  const userId = ctx.from.id;
 
- if (activePayments[userId]) {
+ if (activePayments[userId])
   return ctx.reply("⚠️ پرداخت فعال دارید");
- }
 
  const orderId = `${userId}_${Date.now()}`;
 
- const tonAmount = plan.price;
+ const tonAmount = Number(plan.price);
 
  const payUrl =
  `https://app.tonkeeper.com/transfer/${TON_WALLET}?amount=${Math.floor(tonAmount * 1e9)}&text=${orderId}`;
@@ -65,10 +128,9 @@ async function createPayment(ctx, plan) {
   orderId,
   plan: plan.type,
   amount: tonAmount,
-  created: Date.now()
+  time: Date.now()
  };
 
- // تایمر 20 دقیقه‌ای
  setTimeout(() => {
   if (activePayments[userId]) {
    delete activePayments[userId];
@@ -77,19 +139,22 @@ async function createPayment(ctx, plan) {
  }, 20 * 60 * 1000);
 
  const kb = new InlineKeyboard()
-  .url("💰 پرداخت TON", payUrl);
+  .url("💰 پرداخت TON", payUrl)
+  .text("❌ لغو", "cancel_payment");
 
- ctx.reply(`💳 پرداخت ${plan.type}\n⏳ 20 دقیقه فرصت دارید`);
+ return ctx.reply(
+`💳 پرداخت ${plan.type}
 
+⏳ اعتبار: 20 دقیقه`,
+ { reply_markup: kb }
+ );
 }
 
-// ================= TON CHECKER =================
+// ================= TON CHECKER (REAL) =================
 
-async function checkPayments() {
+async function checkTON() {
 
  try {
-
-  if (!Object.keys(activePayments).length) return;
 
   const res = await axios.get(
    `https://tonapi.io/v2/blockchain/accounts/${TON_WALLET}/transactions?limit=20`
@@ -107,7 +172,6 @@ async function checkPayments() {
     if (processedTx.has(hash)) continue;
 
     const value = Number(tx.in_msg?.value || 0) / 1e9;
-
     const comment = tx.in_msg?.message || "";
 
     if (
@@ -118,8 +182,7 @@ async function checkPayments() {
      processedTx.add(hash);
 
      const cfg = db.getConfig(p.plan);
-
-     if (!cfg) continue;
+     if (!cfg) return;
 
      db.useConfig(cfg.id);
      db.addPurchase(userId, p.plan, cfg.config);
@@ -143,15 +206,14 @@ async function checkPayments() {
   }
 
  } catch (e) {
-  console.log("TON CHECK ERROR:", e.message);
+  console.log("TON ERROR", e.message);
  }
 
 }
 
-// هر 15 ثانیه چک کن
-setInterval(checkPayments, 15000);
+setInterval(checkTON, 15000);
 
-// ================= BUY HANDLER =================
+// ================= CALLBACK =================
 
 bot.on("callback_query:data", async (ctx) => {
 
@@ -165,6 +227,22 @@ bot.on("callback_query:data", async (ctx) => {
 
  if (plans[data]) {
   return createPayment(ctx, plans[data]);
+ }
+
+ if (data === "cancel_payment") {
+
+  const p = activePayments[ctx.from.id];
+
+  if (!p) return ctx.reply("❌ پرداختی ندارید");
+
+  delete activePayments[ctx.from.id];
+
+  return ctx.editMessageText("❌ پرداخت لغو شد");
+ }
+
+ if (data.startsWith("reply_")) {
+  replyMode[config.adminId] = data.split("_")[1];
+  return ctx.reply("✍️ پاسخ را ارسال کنید");
  }
 
 });
