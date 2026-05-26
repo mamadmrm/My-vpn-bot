@@ -412,22 +412,18 @@ async function createPayment(ctx, plan) {
 
  try {
 
-  const res = await axios.get(
-   "https://api.plisio.net/api/v1/invoices/new",
-   {
-    params: {
-     source_currency: "USD",
-     source_amount: plan.price,
-     order_number:
-      `${userId}_${Date.now()}`,
-     currency: "TON",
-     email: "test@test.com",
-     callback_url:
-      "https://my-vpn-bot-production.up.railway.app/webhook",
-     api_key: config.plisioApiKey
-    }
-   }
-  );
+  const res = await axios.post(
+ "https://api.plisio.net/api/v1/invoices/new",
+ new URLSearchParams({
+  source_currency: "USD",
+  source_amount: plan.price,
+  order_number: `${userId}_${Date.now()}`,
+  currency: "TON",
+  email: "test@test.com",
+  callback_url: "https://my-vpn-bot-production.up.railway.app/webhook",
+  api_key: config.plisioApiKey
+ })
+);
 
   const invoice =
    res.data.data.invoice_url;
