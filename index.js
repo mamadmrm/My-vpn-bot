@@ -15,6 +15,7 @@ app.use(express.json());
 const ticketMode = {};
 const adminMode = {};
 const replyMode = {};
+const pendingReceipts = {};
 
 let botEnabled = true;
 
@@ -394,6 +395,63 @@ done`
 
 });
 
+// ================= RECEIVE RECEIPT =================
+
+bot.on("message:photo", async (ctx) => {
+
+ const userId = ctx.from.id;
+
+ if (!pendingReceipts[userId])
+  return;
+
+ const type =
+  pendingReceipts[userId];
+
+ delete pendingReceipts[userId];
+
+ const photo =
+  ctx.message.photo.pop();
+
+ await bot.api.sendPhoto(
+
+  config.adminId,
+  photo.file_id,
+
+  {
+   caption:
+
+`💳 رسید جدید
+
+👤 کاربر:
+${userId}
+
+📦 پلن:
+${type}`,
+
+   reply_markup: {
+    inline_keyboard: [
+
+     [
+      {
+       text: "✅ تایید و ارسال سرویس",
+       callback_data:
+        `approve_${userId}_${type}`
+      }
+     ]
+
+    ]
+   }
+
+  }
+
+ );
+
+ await ctx.reply(
+  "✅ رسید ارسال شد و در انتظار تایید است"
+ );
+
+});
+
 // ================= CALLBACK =================
 
 bot.on("callback_query:data", async (ctx) => {
@@ -403,6 +461,74 @@ bot.on("callback_query:data", async (ctx) => {
 
  const userId =
   ctx.from.id;
+
+ // ================= APPROVE PAYMENT =================
+
+ if (
+  data.startsWith("approve_")
+  &&
+  userId == config.adminId
+ ) {
+
+  const parts =
+   data.split("_");
+
+  const target =
+   Number(parts[1]);
+
+  const type =
+   parts[2];
+
+  const cfg =
+   db.getConfig(type);
+
+  if (!cfg) {
+
+   return ctx.reply(
+    "❌ کانفیگ موجود نیست"
+   );
+
+  }
+
+  db.useConfig(cfg.id);
+
+  db.addPurchase(
+   target,
+   type,
+   cfg.config
+  );
+
+  await bot.api.sendMessage(
+
+   target,
+
+`✅ پرداخت شما تایید شد
+
+📦 کانفیگ شما:
+
+${cfg.config}`
+
+  );
+
+  try {
+
+   const qr =
+    await QRCode.toBuffer(
+     cfg.config
+    );
+
+   await bot.api.sendPhoto(
+    target,
+    { source: qr }
+   );
+
+  } catch {}
+
+  return ctx.reply(
+   "✅ سرویس ارسال شد"
+  );
+
+ }
 
  // ================= REPLY =================
 
@@ -442,26 +568,28 @@ bot.on("callback_query:data", async (ctx) => {
 
  };
 
- if (!plans[data]) return;
+ // ================= PLAN SELECT =================
 
- const plan = plans[data];
+ if (plans[data]) {
 
- const keyboard =
-  new InlineKeyboard()
+  const plan = plans[data];
 
-  .text(
-   "📋 کپی شماره کارت",
-   "copy_card"
-  )
+  const keyboard =
+   new InlineKeyboard()
 
-  .row()
+   .text(
+    "📋 کپی شماره کارت",
+    "copy_card"
+   )
 
-  .text(
-   "✅ پرداخت کردم",
-   `paid_${plan.type}`
-  );
+   .row()
 
- return ctx.reply(
+   .text(
+    "✅ ارسال رسید",
+    `receipt_${plan.type}`
+   );
+
+  return ctx.reply(
 
 `💳 پرداخت با کارت
 
@@ -476,85 +604,50 @@ ${CARD_NAME}
 💳 شماره کارت:
 \`${CARD_NUMBER}\`
 
-⚠️ بعد از پرداخت روی «پرداخت کردم» بزنید`,
+⚠️ بعد از پرداخت روی «ارسال رسید» بزنید`,
 
-  {
-   parse_mode: "Markdown",
-   reply_markup: keyboard
-  }
-
- );
-
-});
-
-// ================= PAYMENT CHECK =================
-
-bot.callbackQuery(
- /^paid_/,
- async (ctx) => {
-
-  const type =
-   ctx.callbackQuery.data
-   .replace("paid_", "");
-
-  const cfg =
-   db.getConfig(type);
-
-  if (!cfg) {
-
-   return ctx.reply(
-    "❌ کانفیگ موجود نیست"
-   );
-
-  }
-
-  db.useConfig(cfg.id);
-
-  db.addPurchase(
-   ctx.from.id,
-   type,
-   cfg.config
-  );
-
-  await ctx.reply(
-
-`✅ درخواست ثبت شد
-
-📦 کانفیگ شما:
-
-${cfg.config}`
+   {
+    parse_mode: "Markdown",
+    reply_markup: keyboard
+   }
 
   );
-
-  try {
-
-   const qr =
-    await QRCode.toBuffer(
-     cfg.config
-    );
-
-   await ctx.replyWithPhoto({
-    source: qr
-   });
-
-  } catch {}
 
  }
-);
 
-// ================= COPY CARD =================
+ // ================= SEND RECEIPT =================
 
-bot.callbackQuery(
- "copy_card",
- async (ctx) => {
+ if (
+  data.startsWith("receipt_")
+ ) {
 
-  await ctx.answerCallbackQuery({
+  const type =
+   data.replace(
+    "receipt_",
+    ""
+   );
+
+  pendingReceipts[userId] =
+   type;
+
+  return ctx.reply(
+   "📸 لطفاً عکس رسید پرداخت را ارسال کنید"
+  );
+
+ }
+
+ // ================= COPY CARD =================
+
+ if (data === "copy_card") {
+
+  return ctx.answerCallbackQuery({
    text: CARD_NUMBER,
    show_alert: true
   });
 
  }
-);
+
+});
 
 // ================= SERVER =================
 
