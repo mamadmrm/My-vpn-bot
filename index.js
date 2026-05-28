@@ -1,6 +1,5 @@
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
-const axios = require("axios");
 const QRCode = require("qrcode");
 
 const db = require("./database");
@@ -13,12 +12,16 @@ app.use(express.json());
 
 // ================= STATE =================
 
-const activePayments = {};
 const ticketMode = {};
 const adminMode = {};
 const replyMode = {};
 
 let botEnabled = true;
+
+// ================= CARD INFO =================
+
+const CARD_NUMBER = "6221061206262828";
+const CARD_NAME = "محمدرضا میرزاآقایی";
 
 // ================= KEYBOARD =================
 
@@ -141,11 +144,17 @@ bot.on("message:text", async (ctx) => {
 
   const keyboard = new InlineKeyboard()
 
-   .text("2 گیگ - 340 هزار تومان", "buy_2")
+   .text(
+    "یک ماهه نامحدود OpenVPN - ۵۵۰ هزار تومان",
+    "buy_1month"
+   )
+
    .row()
-   .text("5 گیگ - 800 هزار تومان", "buy_5")
-   .row()
-   .text("10 گیگ - 1,500,000 تومان", "buy_10");
+
+   .text(
+    "سه ماهه نامحدود OpenVPN - ۱ میلیون تومان",
+    "buy_3month"
+   );
 
   return ctx.reply(
    "📦 پلن موردنظر را انتخاب کنید",
@@ -305,27 +314,14 @@ ${text}`
 
 📥 افزودن کانفیگ:
 
-add 2GB
-add 5GB
-add 10GB
+add 1MONTH
+add 3MONTH
 add FREE
 
 📊 آمار:
 stats`
 
   );
-
- }
-
- // ================= STATS =================
-
- if (
-  text === "stats"
-  &&
-  userId == config.adminId
- ) {
-
-  return ctx.reply("📊 پنل آمار");
 
  }
 
@@ -375,6 +371,8 @@ done`
 
    if (
     line.startsWith("vless://")
+    ||
+    line.startsWith("ovpn://")
    ) {
 
     db.addConfig(
@@ -395,101 +393,6 @@ done`
  }
 
 });
-
-// ================= PAYMENT =================
-
-async function createPayment(ctx, plan) {
-
- const userId = ctx.from.id;
-
- if (activePayments[userId]) {
-
-  return ctx.reply(
-   "⚠️ یک پرداخت فعال دارید"
-  );
-
- }
-
- try {
-
-  const res = await axios.post(
- "https://api.plisio.net/api/v1/invoices/new",
- new URLSearchParams({
-  source_currency: "USD",
-  source_amount: plan.price,
-  order_number: `${userId}_${Date.now()}`,
-  currency: "TON",
-  email: "test@test.com",
-  callback_url: "https://my-vpn-bot-production.up.railway.app/webhook",
-  api_key: config.plisioApiKey
- })
-);
-
-  const invoice =
-   res.data.data.invoice_url;
-
-  activePayments[userId] = {
-
-   url: invoice,
-   plan: plan.type,
-
-   timer: setTimeout(async () => {
-
-    delete activePayments[userId];
-
-    try {
-
-     await bot.api.sendMessage(
-      userId,
-      "⌛ لینک پرداخت منقضی شد"
-     );
-
-    } catch {}
-
-   }, 20 * 60 * 1000)
-
-  };
-
-  const keyboard =
-   new InlineKeyboard()
-
-   .url(
-    "💰 پرداخت با TON",
-    invoice
-   )
-
-   .row()
-
-   .text(
-    "❌ لغو پرداخت",
-    "cancel_payment"
-   );
-
-  return ctx.reply(
-
-`💳 لینک پرداخت ساخته شد
-
-⏰ اعتبار: 20 دقیقه`,
-
-   {
-    reply_markup: keyboard
-   }
-
-  );
-
- } catch (e) {
-
-  console.log(
-   e.response?.data || e.message
-  );
-
-  return ctx.reply(
-   "❌ خطا در ساخت لینک پرداخت"
-  );
-
- }
-
-}
 
 // ================= CALLBACK =================
 
@@ -521,160 +424,134 @@ bot.on("callback_query:data", async (ctx) => {
 
  }
 
- // ================= CANCEL PAYMENT =================
-
- if (data === "cancel_payment") {
-
-  if (!activePayments[userId]) {
-
-   return ctx.reply(
-    "❌ پرداختی ندارید"
-   );
-
-  }
-
-  clearTimeout(
-   activePayments[userId].timer
-  );
-
-  delete activePayments[userId];
-
-  try {
-
-   await ctx.editMessageText(
-    "❌ لینک پرداخت لغو شد"
-   );
-
-  } catch {}
-
-  return ctx.reply(
-   "✅ پرداخت لغو شد"
-  );
-
- }
-
  // ================= BUY =================
 
  const plans = {
 
-  buy_2: {
-   type: "2GB",
-   price: 1.28
+  buy_1month: {
+   type: "1MONTH",
+   title: "یک ماهه نامحدود OpenVPN",
+   price: "۵۵۰,۰۰۰ تومان"
   },
 
-  buy_5: {
-   type: "5GB",
-   price: 2.14
-  },
-
-  buy_10: {
-   type: "10GB",
-   price: 4.45
+  buy_3month: {
+   type: "3MONTH",
+   title: "سه ماهه نامحدود OpenVPN",
+   price: "۱,۰۰۰,۰۰۰ تومان"
   }
 
  };
 
  if (!plans[data]) return;
 
- return createPayment(
-  ctx,
-  plans[data]
+ const plan = plans[data];
+
+ const keyboard =
+  new InlineKeyboard()
+
+  .text(
+   "📋 کپی شماره کارت",
+   "copy_card"
+  )
+
+  .row()
+
+  .text(
+   "✅ پرداخت کردم",
+   `paid_${plan.type}`
+  );
+
+ return ctx.reply(
+
+`💳 پرداخت با کارت
+
+📦 ${plan.title}
+
+💰 مبلغ:
+${plan.price}
+
+👤 به نام:
+${CARD_NAME}
+
+💳 شماره کارت:
+\`${CARD_NUMBER}\`
+
+⚠️ بعد از پرداخت روی «پرداخت کردم» بزنید`,
+
+  {
+   parse_mode: "Markdown",
+   reply_markup: keyboard
+  }
+
  );
 
 });
 
-// ================= WEBHOOK =================
+// ================= PAYMENT CHECK =================
 
-app.post(
- "/webhook",
- async (req, res) => {
+bot.callbackQuery(
+ /^paid_/,
+ async (ctx) => {
 
-  try {
+  const type =
+   ctx.callbackQuery.data
+   .replace("paid_", "");
 
-   console.log(req.body);
+  const cfg =
+   db.getConfig(type);
 
-   const body = req.body;
+  if (!cfg) {
 
-   if (
-    body.status !== "completed"
-   ) {
-    return res.sendStatus(200);
-   }
-
-   const orderId =
-    body.order_number;
-
-   const userId =
-    Number(
-     orderId.split("_")[0]
-    );
-
-   const payment =
-    activePayments[userId];
-
-   if (!payment) {
-    return res.sendStatus(200);
-   }
-
-   const cfg =
-    db.getConfig(payment.plan);
-
-   if (!cfg) {
-
-    await bot.api.sendMessage(
-     userId,
-     "❌ کانفیگ موجود نیست"
-    );
-
-    return res.sendStatus(200);
-
-   }
-
-   db.useConfig(cfg.id);
-
-   db.addPurchase(
-    userId,
-    payment.plan,
-    cfg.config
+   return ctx.reply(
+    "❌ کانفیگ موجود نیست"
    );
 
-   clearTimeout(payment.timer);
+  }
 
-   delete activePayments[userId];
+  db.useConfig(cfg.id);
 
-   await bot.api.sendMessage(
+  db.addPurchase(
+   ctx.from.id,
+   type,
+   cfg.config
+  );
 
-    userId,
+  await ctx.reply(
 
-`✅ پرداخت تایید شد
+`✅ درخواست ثبت شد
 
 📦 کانفیگ شما:
 
 ${cfg.config}`
 
-   );
+  );
 
-   try {
+  try {
 
-    const qr =
-     await QRCode.toBuffer(
-      cfg.config
-     );
-
-    await bot.api.sendPhoto(
-     userId,
-     { source: qr }
+   const qr =
+    await QRCode.toBuffer(
+     cfg.config
     );
 
-   } catch {}
+   await ctx.replyWithPhoto({
+    source: qr
+   });
 
-  } catch (e) {
+  } catch {}
 
-   console.log(e);
+ }
+);
 
-  }
+// ================= COPY CARD =================
 
-  res.sendStatus(200);
+bot.callbackQuery(
+ "copy_card",
+ async (ctx) => {
+
+  await ctx.answerCallbackQuery({
+   text: CARD_NUMBER,
+   show_alert: true
+  });
 
  }
 );
