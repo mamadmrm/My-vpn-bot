@@ -36,7 +36,8 @@ function mainKeyboard(userId) {
   ],
 
   [
-   { text: "🎫 ارسال تیکت" }
+   { text: "🎫 ارسال تیکت" },
+   { text: "📥 دریافت فایل OpenVPN" }
   ],
 
   ...(userId == config.adminId
@@ -101,6 +102,16 @@ bot.on("message:text", async (ctx) => {
  if (text === "🟢 روشن کردن ربات" && userId == config.adminId) {
   botEnabled = true;
   return ctx.reply("🟢 ربات روشن شد");
+ }
+
+ // ================= OPENVPN FILE =================
+
+ if (text === "📥 دریافت فایل OpenVPN") {
+
+  return ctx.replyWithDocument({
+   source: "/mnt/data/100.netiran (1).ovpn"
+  });
+
  }
 
  // ================= BUY =================
@@ -193,7 +204,6 @@ bot.on("message:text", async (ctx) => {
 
 add 1MONTH
 add 3MONTH
-add FREE
 
 📊 آمار:
 stats`
@@ -271,7 +281,10 @@ ${type}`,
 
    reply_markup: {
     inline_keyboard: [[
-     { text: "✅ تایید و ارسال سرویس", callback_data: `approve_${userId}_${type}` }
+     {
+      text: "✅ تایید و ارسال سرویس",
+      callback_data: `approve_${userId}_${type}`
+     }
     ]]
    }
   }
@@ -297,10 +310,16 @@ bot.on("callback_query:data", async (ctx) => {
 
   const cfg = db.getConfig(type);
 
-  if (!cfg) return ctx.reply("❌ کانفیگ موجود نیست");
+  if (!cfg)
+   return ctx.reply("❌ کانفیگ موجود نیست");
 
   db.useConfig(cfg.id);
-  db.addPurchase(target, type, cfg.config);
+
+  db.addPurchase(
+   target,
+   type,
+   cfg.config
+  );
 
   await bot.api.sendMessage(
    target,
@@ -312,8 +331,14 @@ ${cfg.config}`
   );
 
   try {
+
    const qr = await QRCode.toBuffer(cfg.config);
-   await bot.api.sendPhoto(target, { source: qr });
+
+   await bot.api.sendPhoto(
+    target,
+    { source: qr }
+   );
+
   } catch {}
 
   return ctx.reply("✅ انجام شد");
@@ -324,6 +349,7 @@ ${cfg.config}`
  if (data.startsWith("reply_") && userId == config.adminId) {
 
   const target = data.split("_")[1];
+
   replyMode[userId] = target;
 
   return ctx.reply("✍️ پاسخ را ارسال کنید");
@@ -354,6 +380,7 @@ ${cfg.config}`
   const plan = plans[data];
 
   const keyboard = new InlineKeyboard()
+
    .text("📋 کپی شماره کارت", "copy_card")
    .row()
    .text("📸 ارسال رسید", `receipt_${plan.type}`);
@@ -379,10 +406,12 @@ ${CARD_NUMBER}`,
  // ================= COPY CARD =================
 
  if (data === "copy_card") {
+
   return ctx.answerCallbackQuery({
    text: CARD_NUMBER,
    show_alert: true
   });
+
  }
 
  // ================= RECEIPT =================
@@ -390,6 +419,7 @@ ${CARD_NUMBER}`,
  if (data.startsWith("receipt_")) {
 
   const type = data.replace("receipt_", "");
+
   pendingReceipts[userId] = type;
 
   return ctx.reply("📸 لطفاً عکس رسید را ارسال کنید");
@@ -399,9 +429,18 @@ ${CARD_NUMBER}`,
 
 // ================= SERVER =================
 
-app.get("/", (req, res) => res.send("BOT RUNNING"));
+app.get("/", (req, res) => {
+ res.send("BOT RUNNING");
+});
 
-app.listen(process.env.PORT || 3000);
+app.listen(
+ process.env.PORT || 3000,
+ () => {
+  console.log("Server Started");
+ }
+);
+
+// ================= START BOT =================
 
 bot.start();
 
