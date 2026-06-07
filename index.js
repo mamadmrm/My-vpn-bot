@@ -19,7 +19,7 @@ const pendingReceipts = {};
 
 let botEnabled = true;
 
-// ================= CARD INFO =================
+// ================= CARD =================
 
 const CARD_NUMBER = "6221061206262828";
 const CARD_NAME = "محمدرضا میرزاآقایی";
@@ -27,421 +27,224 @@ const CARD_NAME = "محمدرضا میرزاآقایی";
 // ================= KEYBOARD =================
 
 function mainKeyboard(userId) {
-
- return Keyboard.from([
-
-  [
-   { text: "🔐 خرید اشتراک" },
-   { text: "🛍 سرویس‌های من" }
-  ],
-
-  [
-   { text: "🎫 ارسال تیکت" },
-   { text: "📥 دریافت فایل OpenVPN" }
-  ],
-
-  ...(userId == config.adminId
-   ? [
-      [{ text: "⚙️ مدیریت کانفیگ" }],
-      [{ text: "🟢 روشن کردن ربات" }],
-      [{ text: "🔴 خاموش کردن ربات" }]
-     ]
-   : [])
-
- ]).resized();
-
+  return Keyboard.from([
+    [
+      { text: "🔐 خرید اشتراک" },
+      { text: "🛍 سرویس‌های من" }
+    ],
+    [
+      { text: "🎫 ارسال تیکت" }
+    ],
+    ...(userId == config.adminId
+      ? [[{ text: "⚙️ مدیریت کانفیگ" }]]
+      : [])
+  ]).resized();
 }
+
+// ================= BOT CHECK =================
+
+bot.use(async (ctx, next) => {
+  const userId = ctx.from?.id;
+
+  if (!botEnabled && userId != config.adminId) {
+    return ctx.reply("🔴 ربات خاموش است");
+  }
+
+  await next();
+});
 
 // ================= START =================
 
 bot.command("start", async (ctx) => {
+  const userId = ctx.from.id;
 
- const userId = ctx.from.id;
+  db.createUser(userId, ctx.from.username || "user", ctx.from.first_name || "User");
 
- db.createUser(
-  userId,
-  ctx.from.username || "unknown",
-  ctx.from.first_name || "User"
- );
-
- await ctx.reply(
-`سلام و درود به ربات VPN Mirza خوش آمدید`,
- {
-  reply_markup: mainKeyboard(userId)
- });
-
+  await ctx.reply("سلام 👋", {
+    reply_markup: mainKeyboard(userId)
+  });
 });
 
-// ================= BOT OFF CHECK =================
-
-bot.use(async (ctx, next) => {
-
- const userId = ctx.from?.id;
-
- if (!botEnabled && userId != config.adminId) {
-  return ctx.reply("🔴 ربات در حال حاضر خاموش است");
- }
-
- await next();
-});
-
-// ================= MESSAGE =================
+// ================= TEXT HANDLER =================
 
 bot.on("message:text", async (ctx) => {
+  const text = ctx.message.text;
+  const userId = ctx.from.id;
 
- const text = ctx.message.text;
- const userId = ctx.from.id;
+  // BUY MENU
+  if (text === "🔐 خرید اشتراک") {
+    const keyboard = new InlineKeyboard()
+      .text("OpenVPN یک ماهه - ۵۵۰,۰۰۰ تومان", "buy_1")
+      .row()
+      .text("OpenVPN سه ماهه - ۱,۰۰۰,۰۰۰ تومان", "buy_3");
 
- // ================= BOT CONTROL =================
-
- if (text === "🔴 خاموش کردن ربات" && userId == config.adminId) {
-  botEnabled = false;
-  return ctx.reply("🔴 ربات خاموش شد");
- }
-
- if (text === "🟢 روشن کردن ربات" && userId == config.adminId) {
-  botEnabled = true;
-  return ctx.reply("🟢 ربات روشن شد");
- }
-
- // ================= OPENVPN FILE =================
-
- if (text === "📥 دریافت فایل OpenVPN") {
-
-  return ctx.replyWithDocument({
-   source: "/mnt/data/100.netiran (1).ovpn"
-  });
-
- }
-
- // ================= BUY =================
-
- if (text === "🔐 خرید اشتراک") {
-
-  const keyboard = new InlineKeyboard()
-
-   .text("OpenVPN یک ماهه - ۵۵۰,۰۰۰ تومان", "buy_1month")
-   .row()
-   .text("OpenVPN سه ماهه - ۱,۰۰۰,۰۰۰ تومان", "buy_3month");
-
-  return ctx.reply(
-   "📦 پلن موردنظر را انتخاب کنید",
-   { reply_markup: keyboard }
-  );
- }
-
- // ================= SERVICES =================
-
- if (text === "🛍 سرویس‌های من") {
-
-  const services = db.getPurchases(userId);
-
-  if (!services.length)
-   return ctx.reply("❌ سرویسی ندارید");
-
-  for (const s of services) {
-
-   await ctx.reply(`📦 ${s.type}\n\n${s.config}`);
-
-   try {
-    const qr = await QRCode.toBuffer(s.config);
-    await ctx.replyWithPhoto({ source: qr });
-   } catch {}
-
+    return ctx.reply("پلن را انتخاب کنید", { reply_markup: keyboard });
   }
- }
 
- // ================= TICKET =================
+  // SERVICES
+  if (text === "🛍 سرویس‌های من") {
+    const services = db.getPurchases(userId);
 
- if (text === "🎫 ارسال تیکت") {
-  ticketMode[userId] = true;
-  return ctx.reply("✍️ پیام خود را ارسال کنید");
- }
+    if (!services.length)
+      return ctx.reply("سرویسی ندارید");
 
- if (ticketMode[userId] && userId != config.adminId) {
+    for (const s of services) {
+      await ctx.reply(`📦 ${s.type}\n\n${s.config}`);
 
-  delete ticketMode[userId];
-
-  await bot.api.sendMessage(
-   config.adminId,
-   `🎫 تیکت جدید\n\n👤 ${userId}\n\n📩 ${text}`,
-   {
-    reply_markup: {
-     inline_keyboard: [[
-      { text: "💬 پاسخ", callback_data: `reply_${userId}` }
-     ]]
+      try {
+        const qr = await QRCode.toBuffer(s.config);
+        await ctx.replyWithPhoto({ source: qr });
+      } catch {}
     }
-   }
-  );
-
-  return ctx.reply("✅ تیکت ارسال شد");
- }
-
- // ================= ADMIN REPLY =================
-
- if (userId == config.adminId && replyMode[userId]) {
-
-  const target = replyMode[userId];
-
-  await bot.api.sendMessage(
-   target,
-   `📩 پاسخ پشتیبانی:\n\n${text}`
-  );
-
-  delete replyMode[userId];
-
-  return ctx.reply("✅ پاسخ ارسال شد");
- }
-
- // ================= ADMIN PANEL =================
-
- if (text === "⚙️ مدیریت کانفیگ" && userId == config.adminId) {
-
-  return ctx.reply(
-`⚙️ پنل مدیریت
-
-📥 افزودن کانفیگ:
-
-add 1MONTH
-add 3MONTH
-
-📊 آمار:
-stats`
-  );
- }
-
- // ================= ADD CONFIG =================
-
- if (text.startsWith("add ") && userId == config.adminId) {
-
-  adminMode[userId] = text.replace("add ", "");
-
-  return ctx.reply(
-`📥 کانفیگ‌ها را ارسال کنید
-
-هر خط = یک کانفیگ
-
-پایان:
-done`
-  );
- }
-
- if (adminMode[userId] && userId == config.adminId) {
-
-  if (text === "done") {
-   delete adminMode[userId];
-   return ctx.reply("✅ پایان افزودن");
   }
 
-  let count = 0;
+  // TICKET
+  if (text === "🎫 ارسال تیکت") {
+    ticketMode[userId] = true;
+    return ctx.reply("پیام خود را ارسال کنید");
+  }
 
-  text.split("\n").forEach(line => {
+  if (ticketMode[userId]) {
+    delete ticketMode[userId];
 
-   if (
-    line.startsWith("vless://") ||
-    line.startsWith("ovpn://")
-   ) {
+    await bot.api.sendMessage(
+      config.adminId,
+      `🎫 تیکت جدید\n\n👤 ${userId}\n\n${text}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "💬 پاسخ", callback_data: `reply_${userId}` }
+          ]]
+        }
+      }
+    );
 
-    db.addConfig(adminMode[userId], line.trim());
-    count++;
-   }
+    return ctx.reply("ارسال شد");
+  }
 
-  });
+  // ADMIN PANEL
+  if (text === "⚙️ مدیریت کانفیگ" && userId == config.adminId) {
+    return ctx.reply("پنل:\nadd 1\nadd 3");
+  }
 
-  return ctx.reply(`✅ ${count} کانفیگ ذخیره شد`);
- }
+  // ADD CONFIG
+  if (text.startsWith("add ") && userId == config.adminId) {
+    adminMode[userId] = text.replace("add ", "");
+    return ctx.reply("کانفیگ‌ها را بفرست (done پایان)");
+  }
 
+  if (adminMode[userId] && userId == config.adminId) {
+    if (text === "done") {
+      delete adminMode[userId];
+      return ctx.reply("تمام شد");
+    }
+
+    let count = 0;
+
+    text.split("\n").forEach(line => {
+      if (line.startsWith("vless://")) {
+        db.addConfig(adminMode[userId], line.trim());
+        count++;
+      }
+    });
+
+    return ctx.reply(`ذخیره شد: ${count}`);
+  }
 });
 
-// ================= RECEIVE RECEIPT =================
+// ================= RECEIPT =================
 
 bot.on("message:photo", async (ctx) => {
+  const userId = ctx.from.id;
 
- const userId = ctx.from.id;
+  if (!pendingReceipts[userId]) return;
 
- if (!pendingReceipts[userId]) return;
+  const type = pendingReceipts[userId];
+  delete pendingReceipts[userId];
 
- const type = pendingReceipts[userId];
- delete pendingReceipts[userId];
+  const photo = ctx.message.photo.pop();
 
- const photo = ctx.message.photo.pop();
+  await bot.api.sendPhoto(
+    config.adminId,
+    photo.file_id,
+    {
+      caption: `رسید\nUser: ${userId}\nPlan: ${type}`,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "تایید", callback_data: `approve_${userId}_${type}` }
+        ]]
+      }
+    }
+  );
 
- await bot.api.sendPhoto(
-  config.adminId,
-  photo.file_id,
-  {
-   caption:
-`💳 رسید جدید
-
-👤 کاربر:
-${userId}
-
-📦 پلن:
-${type}`,
-
-   reply_markup: {
-    inline_keyboard: [[
-     {
-      text: "✅ تایید و ارسال سرویس",
-      callback_data: `approve_${userId}_${type}`
-     }
-    ]]
-   }
-  }
- );
-
- await ctx.reply("✅ رسید ارسال شد و در انتظار تایید است");
+  ctx.reply("ارسال شد");
 });
 
 // ================= CALLBACK =================
 
 bot.on("callback_query:data", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  const userId = ctx.from.id;
 
- const data = ctx.callbackQuery.data;
- const userId = ctx.from.id;
+  const plans = {
+    buy_1: "1MONTH",
+    buy_3: "3MONTH"
+  };
 
- // ================= APPROVE PAYMENT =================
+  // BUY
+  if (plans[data]) {
+    const type = plans[data];
 
- if (data.startsWith("approve_") && userId == config.adminId) {
+    const keyboard = new InlineKeyboard()
+      .text("📋 کارت", "copy_card")
+      .row()
+      .text("📸 ارسال رسید", `receipt_${type}`);
 
-  const parts = data.split("_");
-  const target = Number(parts[1]);
-  const type = parts[2];
+    return ctx.reply(
+`💳 پرداخت کارت
 
-  const cfg = db.getConfig(type);
+📌 ${CARD_NUMBER}
+👤 ${CARD_NAME}`,
 
-  if (!cfg)
-   return ctx.reply("❌ کانفیگ موجود نیست");
-
-  db.useConfig(cfg.id);
-
-  db.addPurchase(
-   target,
-   type,
-   cfg.config
-  );
-
-  await bot.api.sendMessage(
-   target,
-`✅ پرداخت تایید شد
-
-📦 سرویس شما:
-
-${cfg.config}`
-  );
-
-  try {
-
-   const qr = await QRCode.toBuffer(cfg.config);
-
-   await bot.api.sendPhoto(
-    target,
-    { source: qr }
-   );
-
-  } catch {}
-
-  return ctx.reply("✅ انجام شد");
- }
-
- // ================= REPLY =================
-
- if (data.startsWith("reply_") && userId == config.adminId) {
-
-  const target = data.split("_")[1];
-
-  replyMode[userId] = target;
-
-  return ctx.reply("✍️ پاسخ را ارسال کنید");
- }
-
- // ================= BUY =================
-
- const plans = {
-
-  buy_1month: {
-   type: "1MONTH",
-   title: "OpenVPN یک ماهه",
-   price: "۵۵۰,۰۰۰ تومان"
-  },
-
-  buy_3month: {
-   type: "3MONTH",
-   title: "OpenVPN سه ماهه",
-   price: "۱,۰۰۰,۰۰۰ تومان"
+      { reply_markup: keyboard }
+    );
   }
 
- };
+  // RECEIPT
+  if (data.startsWith("receipt_")) {
+    pendingReceipts[userId] = data.replace("receipt_", "");
+    return ctx.reply("عکس رسید را بفرست");
+  }
 
- // ================= PLAN SELECT =================
+  // COPY CARD
+  if (data === "copy_card") {
+    return ctx.answerCallbackQuery({
+      text: CARD_NUMBER,
+      show_alert: true
+    });
+  }
 
- if (plans[data]) {
+  // APPROVE
+  if (data.startsWith("approve_") && userId == config.adminId) {
+    const [, target, type] = data.split("_");
 
-  const plan = plans[data];
+    const cfg = db.getConfig(type);
 
-  const keyboard = new InlineKeyboard()
+    if (!cfg) return ctx.reply("کانفیگ نیست");
 
-   .text("📋 کپی شماره کارت", "copy_card")
-   .row()
-   .text("📸 ارسال رسید", `receipt_${plan.type}`);
+    db.useConfig(cfg.id);
+    db.addPurchase(target, type, cfg.config);
 
-  return ctx.reply(
-`💳 پرداخت با کارت
+    await bot.api.sendMessage(target, `✅ تایید شد\n\n${cfg.config}`);
 
-📦 ${plan.title}
-
-💰 مبلغ:
-${plan.price}
-
-👤 به نام:
-${CARD_NAME}
-
-💳 شماره کارت:
-${CARD_NUMBER}`,
-
-   { reply_markup: keyboard }
-  );
- }
-
- // ================= COPY CARD =================
-
- if (data === "copy_card") {
-
-  return ctx.answerCallbackQuery({
-   text: CARD_NUMBER,
-   show_alert: true
-  });
-
- }
-
- // ================= RECEIPT =================
-
- if (data.startsWith("receipt_")) {
-
-  const type = data.replace("receipt_", "");
-
-  pendingReceipts[userId] = type;
-
-  return ctx.reply("📸 لطفاً عکس رسید را ارسال کنید");
- }
-
+    return ctx.reply("انجام شد");
+  }
 });
 
 // ================= SERVER =================
 
-app.get("/", (req, res) => {
- res.send("BOT RUNNING");
-});
-
-app.listen(
- process.env.PORT || 3000,
- () => {
-  console.log("Server Started");
- }
-);
-
-// ================= START BOT =================
+app.get("/", (req, res) => res.send("OK"));
+app.listen(process.env.PORT || 3000);
 
 bot.start();
-
 console.log("Bot Started");
