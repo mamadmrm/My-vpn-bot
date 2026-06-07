@@ -1,6 +1,10 @@
 {
   "botToken": "8818158580:AAEuG0HHIM0QfHIcibO-iORtFOmj9Z5bF10",
   "adminId": 489450312,
-  "plisioApiKey": "qU-IFBLxBU5Ci7Th6Lw9OSZk_ps_r3cyyzUKMTKQV3tZ6hE7YGOETOe3QWB4g5dy",
-  "domain": "https://my-vpn-bot-production.up.railway.app"
+  "xui": {
+    "url": "https://mirzaserver.sbs:2091/S74BB8RufmpZwOnJKG",
+    "username": "gg88cruq73",
+    "password": "5er9zqmId8",
+    "inboundId": 4
+  }
 }
