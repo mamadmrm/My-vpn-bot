@@ -1,5 +1,6 @@
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
+const axios = require("axios");
 const QRCode = require("qrcode");
 
 const db = require("./database");
@@ -10,241 +11,178 @@ const app = express();
 
 app.use(express.json());
 
-// ================= STATE =================
+// ================= CONFIG =================
 
-const ticketMode = {};
-const adminMode = {};
-const replyMode = {};
-const pendingReceipts = {};
+const XUI = {
+  url: "https://mirzaserver.sbs:2091",
+  user: "gg88cruq73",
+  pass: "5er9zqmId8",
+  inbound: 4
+};
 
-let botEnabled = true;
+let cookie = "";
 
-// ================= CARD =================
+// ================= LOGIN =================
 
-const CARD_NUMBER = "6221061206262828";
-const CARD_NAME = "محمدرضا میرزاآقایی";
+async function login() {
+  const res = await axios.post(`${XUI.url}/panel/api/login`, {
+    username: XUI.user,
+    password: XUI.pass
+  });
 
-// ================= KEYBOARD =================
-
-function mainKeyboard(userId) {
-  return Keyboard.from([
-    [
-      { text: "🔐 خرید اشتراک" },
-      { text: "🛍 سرویس‌های من" }
-    ],
-    [
-      { text: "🎫 ارسال تیکت" }
-    ],
-    ...(userId == config.adminId
-      ? [[{ text: "⚙️ مدیریت کانفیگ" }]]
-      : [])
-  ]).resized();
+  cookie = res.headers["set-cookie"]?.join("; ") || "";
 }
 
-// ================= BOT CHECK =================
+// ================= CREATE CLIENT =================
 
-bot.use(async (ctx, next) => {
-  const userId = ctx.from?.id;
+async function createClient(email, gb, days = 30) {
+  await login();
 
-  if (!botEnabled && userId != config.adminId) {
-    return ctx.reply("🔴 ربات خاموش است");
-  }
+  const expiry = Date.now() + days * 86400000;
 
-  await next();
-});
-
-// ================= START =================
-
-bot.command("start", async (ctx) => {
-  const userId = ctx.from.id;
-
-  db.createUser(userId, ctx.from.username || "user", ctx.from.first_name || "User");
-
-  await ctx.reply("سلام 👋", {
-    reply_markup: mainKeyboard(userId)
-  });
-});
-
-// ================= TEXT HANDLER =================
-
-bot.on("message:text", async (ctx) => {
-  const text = ctx.message.text;
-  const userId = ctx.from.id;
-
-  // BUY MENU
-  if (text === "🔐 خرید اشتراک") {
-    const keyboard = new InlineKeyboard()
-      .text("OpenVPN یک ماهه - ۵۵۰,۰۰۰ تومان", "buy_1")
-      .row()
-      .text("OpenVPN سه ماهه - ۱,۰۰۰,۰۰۰ تومان", "buy_3");
-
-    return ctx.reply("پلن را انتخاب کنید", { reply_markup: keyboard });
-  }
-
-  // SERVICES
-  if (text === "🛍 سرویس‌های من") {
-    const services = db.getPurchases(userId);
-
-    if (!services.length)
-      return ctx.reply("سرویسی ندارید");
-
-    for (const s of services) {
-      await ctx.reply(`📦 ${s.type}\n\n${s.config}`);
-
-      try {
-        const qr = await QRCode.toBuffer(s.config);
-        await ctx.replyWithPhoto({ source: qr });
-      } catch {}
-    }
-  }
-
-  // TICKET
-  if (text === "🎫 ارسال تیکت") {
-    ticketMode[userId] = true;
-    return ctx.reply("پیام خود را ارسال کنید");
-  }
-
-  if (ticketMode[userId]) {
-    delete ticketMode[userId];
-
-    await bot.api.sendMessage(
-      config.adminId,
-      `🎫 تیکت جدید\n\n👤 ${userId}\n\n${text}`,
-      {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "💬 پاسخ", callback_data: `reply_${userId}` }
-          ]]
-        }
-      }
-    );
-
-    return ctx.reply("ارسال شد");
-  }
-
-  // ADMIN PANEL
-  if (text === "⚙️ مدیریت کانفیگ" && userId == config.adminId) {
-    return ctx.reply("پنل:\nadd 1\nadd 3");
-  }
-
-  // ADD CONFIG
-  if (text.startsWith("add ") && userId == config.adminId) {
-    adminMode[userId] = text.replace("add ", "");
-    return ctx.reply("کانفیگ‌ها را بفرست (done پایان)");
-  }
-
-  if (adminMode[userId] && userId == config.adminId) {
-    if (text === "done") {
-      delete adminMode[userId];
-      return ctx.reply("تمام شد");
-    }
-
-    let count = 0;
-
-    text.split("\n").forEach(line => {
-      if (line.startsWith("vless://")) {
-        db.addConfig(adminMode[userId], line.trim());
-        count++;
-      }
-    });
-
-    return ctx.reply(`ذخیره شد: ${count}`);
-  }
-});
-
-// ================= RECEIPT =================
-
-bot.on("message:photo", async (ctx) => {
-  const userId = ctx.from.id;
-
-  if (!pendingReceipts[userId]) return;
-
-  const type = pendingReceipts[userId];
-  delete pendingReceipts[userId];
-
-  const photo = ctx.message.photo.pop();
-
-  await bot.api.sendPhoto(
-    config.adminId,
-    photo.file_id,
+  await axios.post(
+    `${XUI.url}/panel/api/clients/add`,
     {
-      caption: `رسید\nUser: ${userId}\nPlan: ${type}`,
-      reply_markup: {
-        inline_keyboard: [[
-          { text: "تایید", callback_data: `approve_${userId}_${type}` }
-        ]]
-      }
-    }
+      client: {
+        email,
+        totalGB: gb * 1024 * 1024 * 1024,
+        expiryTime: expiry,
+        tgId: 0,
+        limitIp: 0,
+        enable: true
+      },
+      inboundIds: [XUI.inbound]
+    },
+    { headers: { Cookie: cookie } }
   );
 
-  ctx.reply("ارسال شد");
-});
+  return {
+    email,
+    sub: `${XUI.url}/sub/${email}`
+  };
+}
+
+// ================= USAGE CHECK =================
+// (اگر پنل ساپورت کند)
+
+async function checkUsage(email) {
+  try {
+    const res = await axios.get(`${XUI.url}/panel/api/client/usage`, {
+      headers: { Cookie: cookie },
+      params: { email }
+    });
+
+    return res.data;
+  } catch {
+    return null;
+  }
+}
+
+// ================= DELETE CLIENT =================
+
+async function deleteClient(email) {
+  try {
+    await login();
+
+    await axios.post(
+      `${XUI.url}/panel/api/clients/delete`,
+      { email },
+      { headers: { Cookie: cookie } }
+    );
+  } catch {}
+}
+
+// ================= AUTO EXPIRE SYSTEM =================
+
+async function autoDeleteExpired() {
+  const users = db.getAllActiveClients?.() || [];
+
+  for (const u of users) {
+    if (Date.now() > u.expiry) {
+      await deleteClient(u.email);
+      db.markExpired(u.email);
+    }
+  }
+}
+
+setInterval(autoDeleteExpired, 60 * 60 * 1000); // هر 1 ساعت
+
+// ================= EXTEND =================
+
+async function extendClient(email, gb, days) {
+  await login();
+
+  const newExpiry = Date.now() + days * 86400000;
+
+  await axios.post(
+    `${XUI.url}/panel/api/clients/update`,
+    {
+      email,
+      totalGB: gb * 1024 * 1024 * 1024,
+      expiryTime: newExpiry
+    },
+    { headers: { Cookie: cookie } }
+  );
+}
+
+// ================= BUY FLOW =================
+
+const plans = {
+  buy_50: { gb: 50, price: 180000 },
+  buy_100: { gb: 100, price: 350000 },
+  buy_200: { gb: 200, price: 650000 }
+};
 
 // ================= CALLBACK =================
 
 bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
-  const userId = ctx.from.id;
-
-  const plans = {
-    buy_1: "1MONTH",
-    buy_3: "3MONTH"
-  };
+  const uid = ctx.from.id;
 
   // BUY
   if (plans[data]) {
-    const type = plans[data];
-
-    const keyboard = new InlineKeyboard()
-      .text("📋 کارت", "copy_card")
-      .row()
-      .text("📸 ارسال رسید", `receipt_${type}`);
+    const p = plans[data];
 
     return ctx.reply(
-`💳 پرداخت کارت
+`💳 کارت:
+6221061206262828
 
-📌 ${CARD_NUMBER}
-👤 ${CARD_NAME}`,
+💰 ${p.price}
 
-      { reply_markup: keyboard }
+بعد از پرداخت ارسال رسید`,
+      {
+        reply_markup: new InlineKeyboard()
+          .text("ارسال رسید", `receipt_${data}`)
+      }
     );
   }
 
-  // RECEIPT
-  if (data.startsWith("receipt_")) {
-    pendingReceipts[userId] = data.replace("receipt_", "");
-    return ctx.reply("عکس رسید را بفرست");
-  }
+  // APPROVE RECEIPT (ADMIN)
+  if (data.startsWith("approve_")) {
+    const [, userId, planKey] = data.split("_");
 
-  // COPY CARD
-  if (data === "copy_card") {
-    return ctx.answerCallbackQuery({
-      text: CARD_NUMBER,
-      show_alert: true
-    });
-  }
+    const plan = plans[planKey];
 
-  // APPROVE
-  if (data.startsWith("approve_") && userId == config.adminId) {
-    const [, target, type] = data.split("_");
+    const email = `u${userId}_${Date.now()}`;
 
-    const cfg = db.getConfig(type);
+    const result = await createClient(email, plan.gb, 30);
 
-    if (!cfg) return ctx.reply("کانفیگ نیست");
+    db.addPurchase(userId, planKey, result.sub);
 
-    db.useConfig(cfg.id);
-    db.addPurchase(target, type, cfg.config);
+    await bot.api.sendMessage(
+      userId,
+      `✅ سرویس فعال شد\n\n${result.sub}`
+    );
 
-    await bot.api.sendMessage(target, `✅ تایید شد\n\n${cfg.config}`);
-
-    return ctx.reply("انجام شد");
+    return ctx.reply("OK");
   }
 });
 
-// ================= SERVER =================
+// ================= SERVE =================
 
 app.get("/", (req, res) => res.send("OK"));
 app.listen(process.env.PORT || 3000);
 
 bot.start();
-console.log("Bot Started");
+
+console.log("BOT RUNNING");
