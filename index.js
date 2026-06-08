@@ -1,6 +1,5 @@
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
-
 const db = require("./database");
 const config = require("./config.json");
 
@@ -9,31 +8,24 @@ const app = express();
 
 app.use(express.json());
 
+// ================= POOL LINKS =================
+// اینا همون ساب‌هات هستن (باید واقعی باشن)
+const pool = {
+  "buy_50": [
+    "https://mirzaserver.sbs:2096/sub/3p2rk83x8h0lg2vu"
+  ],
+  "buy_100": [
+    "https://mirzaserver.sbs:2096/sub/b305cxdhf0tlqa86"
+  ],
+  "buy_200": [
+    "https://mirzaserver.sbs:2096/sub/02k7e52cjjtv2zhg"
+  ]
+};
+
 // ================= STATE =================
 
-let botEnabled = true;
 const pendingReceipts = {};
-const ticketMode = {};
-
-// ================= PLANS =================
-
-const plans = {
-  buy_50: {
-    title: "50GB یک ماهه",
-    price: "180,000",
-    subPool: "https://mirzaserver.sbs:2096/sub/3p2rk83x8h0lg2vu"
-  },
-  buy_100: {
-    title: "100GB یک ماهه",
-    price: "350,000",
-    subPool: "https://mirzaserver.sbs:2096/sub/b305cxdhf0tlqa86"
-  },
-  buy_200: {
-    title: "200GB یک ماهه",
-    price: "650,000",
-    subPool: "https://mirzaserver.sbs:2096/sub/02k7e52cjjtv2zhg"
-  }
-};
+let botEnabled = true;
 
 // ================= KEYBOARD =================
 
@@ -42,42 +34,19 @@ function mainKeyboard() {
     [
       { text: "🔐 خرید اشتراک" },
       { text: "🛍 سرویس‌های من" }
-    ],
-    [
-      { text: "🎫 ارسال تیکت" }
-    ],
-    ...(config.adminId
-      ? [[{ text: "⚙️ مدیریت" }]]
-      : [])
+    ]
   ]).resized();
 }
 
 // ================= START =================
 
 bot.command("start", async (ctx) => {
-  const userId = ctx.from.id;
-
-  db.createUser(
-    userId,
-    ctx.from.username || "unknown",
-    ctx.from.first_name || "user"
-  );
-
-  await ctx.reply("👋 خوش آمدید", {
+  await ctx.reply("👋 خوش آمدی", {
     reply_markup: mainKeyboard()
   });
 });
 
-// ================= BOT OFF =================
-
-bot.use(async (ctx, next) => {
-  if (!botEnabled && ctx.from.id != config.adminId) {
-    return ctx.reply("🔴 ربات خاموش است");
-  }
-  await next();
-});
-
-// ================= TEXT =================
+// ================= BUY =================
 
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text;
@@ -91,33 +60,17 @@ bot.on("message:text", async (ctx) => {
       .row()
       .text("200GB - 650K", "buy_200");
 
-    return ctx.reply("پلن را انتخاب کن", { reply_markup: kb });
+    return ctx.reply("پلن رو انتخاب کن", { reply_markup: kb });
   }
 
   if (text === "🛍 سرویس‌های من") {
     const list = db.getPurchases(userId);
 
-    if (!list.length) return ctx.reply("نداری سرویس");
+    if (!list.length) return ctx.reply("سرویسی نداری");
 
     for (const s of list) {
       await ctx.reply(`🔗 سرویس شما:\n${s.config}`);
     }
-  }
-
-  if (text === "🎫 ارسال تیکت") {
-    ticketMode[userId] = true;
-    return ctx.reply("پیام خود را ارسال کنید");
-  }
-
-  if (ticketMode[userId]) {
-    delete ticketMode[userId];
-
-    await bot.api.sendMessage(
-      config.adminId,
-      `🎫 تیکت\n\n${userId}\n\n${text}`
-    );
-
-    return ctx.reply("ارسال شد");
   }
 });
 
@@ -127,20 +80,15 @@ bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
   const uid = ctx.from.id;
 
-  // BUY
-  if (plans[data]) {
-    const p = plans[data];
-
+  // BUY SELECT
+  if (pool[data]) {
     return ctx.reply(
 `💳 پرداخت کارت به کارت
 
-💰 مبلغ: ${p.price}
+6221061206262828
+محمدرضا میرزاآقایی
 
-👤 به نام: محمدرضا میرزاآقایی
-
-📦 سرویس: ${p.title}
-
-⚠️ بعد از پرداخت رسید ارسال کنید`,
+بعد از پرداخت روی ارسال رسید بزن`,
       {
         reply_markup: new InlineKeyboard()
           .text("📸 ارسال رسید", `receipt_${data}`)
@@ -153,29 +101,38 @@ bot.on("callback_query:data", async (ctx) => {
     const plan = data.replace("receipt_", "");
     pendingReceipts[uid] = plan;
 
-    return ctx.reply("📸 عکس رسید را ارسال کنید");
+    return ctx.reply("📸 عکس رسید رو بفرست");
   }
 
-  // ADMIN APPROVE
-  if (data.startsWith("approve_") && uid == config.adminId) {
+  // APPROVE PAYMENT (ADMIN)
+  if (data.startsWith("approve_")) {
+
+    if (uid != config.adminId) {
+      return ctx.answerCallbackQuery("اجازه نداری");
+    }
+
     const [, userId, planKey] = data.split("_");
 
-    const plan = plans[planKey];
+    const links = pool[planKey];
 
-    const link = plan.subPool;
+    if (!links || !links.length) {
+      return ctx.reply("❌ لینک برای این پلن نداری");
+    }
+
+    const link = links.shift(); // هر بار یکی بده
 
     db.addPurchase(userId, planKey, link);
 
     await bot.api.sendMessage(
       userId,
-      `✅ پرداخت تایید شد\n\n🔗 لینک سرویس:\n${link}`
+      `✅ پرداخت تایید شد\n\n🔗 سرویس شما:\n${link}`
     );
 
-    return ctx.reply("OK");
+    return ctx.reply("ارسال شد ✔️");
   }
 });
 
-// ================= RECEIPT PHOTO =================
+// ================= PHOTO RECEIPT =================
 
 bot.on("message:photo", async (ctx) => {
   const userId = ctx.from.id;
@@ -191,12 +148,15 @@ bot.on("message:photo", async (ctx) => {
     caption: `📩 رسید\n${userId}\n${plan}`,
     reply_markup: {
       inline_keyboard: [[
-        { text: "تایید", callback_data: `approve_${userId}_${plan}` }
+        {
+          text: "✅ تایید",
+          callback_data: `approve_${userId}_${plan}`
+        }
       ]]
     }
   });
 
-  return ctx.reply("رسید ارسال شد");
+  return ctx.reply("رسید ارسال شد ✔️");
 });
 
 // ================= SERVER =================
@@ -206,4 +166,4 @@ app.listen(process.env.PORT || 3000);
 
 bot.start();
 
-console.log("BOT RUNNING (STABLE MODE)");
+console.log("BOT RUNNING FIXED");
