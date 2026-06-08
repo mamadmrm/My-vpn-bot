@@ -1,47 +1,94 @@
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
+const axios = require("axios");
 const express = require("express");
-const db = require("./database");
+
 const config = require("./config.json");
+const db = require("./database");
 
 const bot = new Bot(config.botToken);
 const app = express();
 
 app.use(express.json());
 
-// ================= POOL LINKS =================
-// اینا همون ساب‌هات هستن (باید واقعی باشن)
-const pool = {
-  "buy_50": [
-    "https://mirzaserver.sbs:2096/sub/3p2rk83x8h0lg2vu"
-  ],
-  "buy_100": [
-    "https://mirzaserver.sbs:2096/sub/b305cxdhf0tlqa86"
-  ],
-  "buy_200": [
-    "https://mirzaserver.sbs:2096/sub/02k7e52cjjtv2zhg"
-  ]
+// ================= XUI CONFIG =================
+
+const XUI = {
+  url: "https://mirzaserver.sbs:2091",
+  username: "gg88cruq73",
+  password: "5er9zqmId8",
+  inboundId: 4,
+  session: null
 };
 
-// ================= STATE =================
+// ================= PLANS =================
 
-const pendingReceipts = {};
-let botEnabled = true;
+const plans = {
+  buy_50: { gb: 50, days: 30, name: "50GB" },
+  buy_100: { gb: 100, days: 30, name: "100GB" },
+  buy_200: { gb: 200, days: 30, name: "200GB" }
+};
+
+// ================= LOGIN XUI =================
+
+async function loginXUI() {
+  try {
+    const res = await axios.post(`${XUI.url}/login`, {
+      username: XUI.username,
+      password: XUI.password
+    });
+
+    XUI.session = res.headers["set-cookie"];
+    console.log("XUI LOGIN OK");
+  } catch (e) {
+    console.log("XUI LOGIN FAIL", e.message);
+  }
+}
+
+// ================= CREATE CLIENT =================
+
+async function createClient(email, gb, days) {
+  const expiry = Date.now() + days * 24 * 60 * 60 * 1000;
+
+  const data = {
+    id: XUI.inboundId,
+    settings: JSON.stringify({
+      clients: [
+        {
+          email: email,
+          limitIp: 0,
+          totalGB: gb * 1024 * 1024 * 1024,
+          expiryTime: expiry,
+          enable: true
+        }
+      ]
+    })
+  };
+
+  const res = await axios.post(
+    `${XUI.url}/panel/api/inbounds/addClient`,
+    data,
+    {
+      headers: {
+        Cookie: XUI.session
+      }
+    }
+  );
+
+  return res.data;
+}
 
 // ================= KEYBOARD =================
 
 function mainKeyboard() {
   return Keyboard.from([
-    [
-      { text: "🔐 خرید اشتراک" },
-      { text: "🛍 سرویس‌های من" }
-    ]
+    [{ text: "🔐 خرید اشتراک" }]
   ]).resized();
 }
 
 // ================= START =================
 
 bot.command("start", async (ctx) => {
-  await ctx.reply("👋 خوش آمدی", {
+  await ctx.reply("VPN Bot Active", {
     reply_markup: mainKeyboard()
   });
 });
@@ -54,23 +101,15 @@ bot.on("message:text", async (ctx) => {
 
   if (text === "🔐 خرید اشتراک") {
     const kb = new InlineKeyboard()
-      .text("50GB - 180K", "buy_50")
+      .text("50GB", "buy_50")
       .row()
-      .text("100GB - 350K", "buy_100")
+      .text("100GB", "buy_100")
       .row()
-      .text("200GB - 650K", "buy_200");
+      .text("200GB", "buy_200");
 
-    return ctx.reply("پلن رو انتخاب کن", { reply_markup: kb });
-  }
-
-  if (text === "🛍 سرویس‌های من") {
-    const list = db.getPurchases(userId);
-
-    if (!list.length) return ctx.reply("سرویسی نداری");
-
-    for (const s of list) {
-      await ctx.reply(`🔗 سرویس شما:\n${s.config}`);
-    }
+    return ctx.reply("پلن را انتخاب کن", {
+      reply_markup: kb
+    });
   }
 });
 
@@ -78,85 +117,73 @@ bot.on("message:text", async (ctx) => {
 
 bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
-  const uid = ctx.from.id;
+  const userId = ctx.from.id;
 
-  // BUY SELECT
-  if (pool[data]) {
-    return ctx.reply(
-`💳 پرداخت کارت به کارت
+  const plan = plans[data];
 
-6221061206262828
-محمدرضا میرزاآقایی
+  if (!plan) return;
 
-بعد از پرداخت روی ارسال رسید بزن`,
-      {
-        reply_markup: new InlineKeyboard()
-          .text("📸 ارسال رسید", `receipt_${data}`)
-      }
-    );
-  }
+  await ctx.reply("📸 رسید پرداخت را ارسال کنید");
 
-  // RECEIPT REQUEST
-  if (data.startsWith("receipt_")) {
-    const plan = data.replace("receipt_", "");
-    pendingReceipts[uid] = plan;
-
-    return ctx.reply("📸 عکس رسید رو بفرست");
-  }
-
-  // APPROVE PAYMENT (ADMIN)
-  if (data.startsWith("approve_")) {
-
-    if (uid != config.adminId) {
-      return ctx.answerCallbackQuery("اجازه نداری");
-    }
-
-    const [, userId, planKey] = data.split("_");
-
-    const links = pool[planKey];
-
-    if (!links || !links.length) {
-      return ctx.reply("❌ لینک برای این پلن نداری");
-    }
-
-    const link = links.shift(); // هر بار یکی بده
-
-    db.addPurchase(userId, planKey, link);
-
-    await bot.api.sendMessage(
-      userId,
-      `✅ پرداخت تایید شد\n\n🔗 سرویس شما:\n${link}`
-    );
-
-    return ctx.reply("ارسال شد ✔️");
-  }
+  ctx.session = data;
 });
 
-// ================= PHOTO RECEIPT =================
+// ================= RECEIPT =================
 
 bot.on("message:photo", async (ctx) => {
   const userId = ctx.from.id;
 
-  if (!pendingReceipts[userId]) return;
-
-  const plan = pendingReceipts[userId];
-  delete pendingReceipts[userId];
-
   const photo = ctx.message.photo.pop();
 
+  const planKey = ctx.session;
+
   await bot.api.sendPhoto(config.adminId, photo.file_id, {
-    caption: `📩 رسید\n${userId}\n${plan}`,
+    caption: `New Payment\nUser: ${userId}\nPlan: ${planKey}`,
     reply_markup: {
       inline_keyboard: [[
         {
-          text: "✅ تایید",
-          callback_data: `approve_${userId}_${plan}`
+          text: "Approve",
+          callback_data: `approve_${userId}_${planKey}`
         }
       ]]
     }
   });
 
-  return ctx.reply("رسید ارسال شد ✔️");
+  ctx.reply("رسید ارسال شد");
+});
+
+// ================= APPROVE =================
+
+bot.on("callback_query:data", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+
+  if (!data.startsWith("approve_")) return;
+
+  const [, userId, planKey] = data.split("_");
+
+  const plan = plans[planKey];
+
+  const email = `user_${userId}_${Date.now()}`;
+
+  await loginXUI();
+
+  const result = await createClient(
+    email,
+    plan.gb,
+    plan.days
+  );
+
+  await bot.api.sendMessage(
+    userId,
+`✅ سرویس فعال شد
+
+📦 حجم: ${plan.gb}GB
+⏳ مدت: ${plan.days} روز
+
+🔗 ساخته شد در پنل`
+  );
+
+  await ctx.reply("Done");
 });
 
 // ================= SERVER =================
@@ -166,4 +193,4 @@ app.listen(process.env.PORT || 3000);
 
 bot.start();
 
-console.log("BOT RUNNING FIXED");
+console.log("BOT RUNNING REAL XUI");
