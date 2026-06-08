@@ -13,82 +13,91 @@ app.use(express.json());
 // ================= XUI CONFIG =================
 
 const XUI = {
-  url: "https://mirzaserver.sbs:2091",
+  baseUrl: "https://mirzaserver.sbs:2091",
   username: "gg88cruq73",
   password: "5er9zqmId8",
   inboundId: 4,
-  session: null
+  cookie: null
 };
 
-// ================= PLANS =================
+// ================= LOGIN =================
 
-const plans = {
-  buy_50: { gb: 50, days: 30, name: "50GB" },
-  buy_100: { gb: 100, days: 30, name: "100GB" },
-  buy_200: { gb: 200, days: 30, name: "200GB" }
-};
-
-// ================= LOGIN XUI =================
-
-async function loginXUI() {
+async function login() {
   try {
-    const res = await axios.post(`${XUI.url}/login`, {
+    const res = await axios.post(`${XUI.baseUrl}/login`, {
       username: XUI.username,
       password: XUI.password
     });
 
-    XUI.session = res.headers["set-cookie"];
-    console.log("XUI LOGIN OK");
+    XUI.cookie = res.headers["set-cookie"];
+    return true;
+
   } catch (e) {
-    console.log("XUI LOGIN FAIL", e.message);
+    console.log("LOGIN ERROR", e.message);
+    return false;
   }
 }
 
-// ================= CREATE CLIENT =================
+// ================= CREATE USER =================
 
-async function createClient(email, gb, days) {
-  const expiry = Date.now() + days * 24 * 60 * 60 * 1000;
+async function createUser(userId, plan) {
+  const email = `u_${userId}_${Date.now()}`;
 
-  const data = {
+  const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+  const payload = {
     id: XUI.inboundId,
     settings: JSON.stringify({
       clients: [
         {
-          email: email,
-          limitIp: 0,
-          totalGB: gb * 1024 * 1024 * 1024,
+          email,
+          enable: true,
+          totalGB: plan.gb * 1024 * 1024 * 1024,
           expiryTime: expiry,
-          enable: true
+          limitIp: 0
         }
       ]
     })
   };
 
   const res = await axios.post(
-    `${XUI.url}/panel/api/inbounds/addClient`,
-    data,
+    `${XUI.baseUrl}/panel/api/inbounds/addClient`,
+    payload,
     {
       headers: {
-        Cookie: XUI.session
+        Cookie: XUI.cookie
       }
     }
   );
 
-  return res.data;
+  return {
+    email,
+    success: res.data.success,
+    link: `${XUI.baseUrl}/sub/${email}`
+  };
 }
 
-// ================= KEYBOARD =================
+// ================= PLANS =================
+
+const plans = {
+  buy_50: { gb: 50, name: "50GB" },
+  buy_100: { gb: 100, name: "100GB" },
+  buy_200: { gb: 200, name: "200GB" }
+};
+
+// ================= UI =================
 
 function mainKeyboard() {
   return Keyboard.from([
-    [{ text: "🔐 خرید اشتراک" }]
+    [{ text: "🔐 خرید اشتراک" }],
+    [{ text: "🛍 سرویس‌های من" }]
   ]).resized();
 }
 
 // ================= START =================
 
 bot.command("start", async (ctx) => {
-  await ctx.reply("VPN Bot Active", {
+  await ctx.reply("VPN BOT ACTIVE", {
     reply_markup: mainKeyboard()
   });
 });
@@ -97,15 +106,14 @@ bot.command("start", async (ctx) => {
 
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text;
-  const userId = ctx.from.id;
 
   if (text === "🔐 خرید اشتراک") {
     const kb = new InlineKeyboard()
-      .text("50GB", "buy_50")
+      .text("50GB - 180K", "buy_50")
       .row()
-      .text("100GB", "buy_100")
+      .text("100GB - 350K", "buy_100")
       .row()
-      .text("200GB", "buy_200");
+      .text("200GB - 650K", "buy_200");
 
     return ctx.reply("پلن را انتخاب کن", {
       reply_markup: kb
@@ -119,11 +127,9 @@ bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
   const userId = ctx.from.id;
 
-  const plan = plans[data];
+  if (!plans[data]) return;
 
-  if (!plan) return;
-
-  await ctx.reply("📸 رسید پرداخت را ارسال کنید");
+  ctx.reply("📸 رسید پرداخت را ارسال کنید");
 
   ctx.session = data;
 });
@@ -134,15 +140,14 @@ bot.on("message:photo", async (ctx) => {
   const userId = ctx.from.id;
 
   const photo = ctx.message.photo.pop();
-
   const planKey = ctx.session;
 
   await bot.api.sendPhoto(config.adminId, photo.file_id, {
-    caption: `New Payment\nUser: ${userId}\nPlan: ${planKey}`,
+    caption: `PAYMENT\nUSER:${userId}\nPLAN:${planKey}`,
     reply_markup: {
       inline_keyboard: [[
         {
-          text: "Approve",
+          text: "APPROVE",
           callback_data: `approve_${userId}_${planKey}`
         }
       ]]
@@ -163,27 +168,26 @@ bot.on("callback_query:data", async (ctx) => {
 
   const plan = plans[planKey];
 
-  const email = `user_${userId}_${Date.now()}`;
+  const ok = await login();
 
-  await loginXUI();
+  if (!ok) return ctx.reply("LOGIN FAILED");
 
-  const result = await createClient(
-    email,
-    plan.gb,
-    plan.days
-  );
+  const result = await createUser(userId, plan);
+
+  if (!result.success) {
+    return ctx.reply("ERROR CREATING USER");
+  }
 
   await bot.api.sendMessage(
     userId,
 `✅ سرویس فعال شد
 
 📦 حجم: ${plan.gb}GB
-⏳ مدت: ${plan.days} روز
-
-🔗 ساخته شد در پنل`
+🔗 لینک:
+${result.link}`
   );
 
-  await ctx.reply("Done");
+  ctx.reply("DONE");
 });
 
 // ================= SERVER =================
@@ -193,4 +197,4 @@ app.listen(process.env.PORT || 3000);
 
 bot.start();
 
-console.log("BOT RUNNING REAL XUI");
+console.log("BOT RUNNING FULL PRO MODE");
