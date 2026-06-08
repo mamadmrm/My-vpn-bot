@@ -1,7 +1,5 @@
 const { Bot, Keyboard, InlineKeyboard } = require("grammy");
 const express = require("express");
-const axios = require("axios");
-const QRCode = require("qrcode");
 
 const db = require("./database");
 const config = require("./config.json");
@@ -11,83 +9,35 @@ const app = express();
 
 app.use(express.json());
 
-// ================= CONFIG =================
-
-const XUI = {
-  url: "https://mirzaserver.sbs:2091",
-  username: "gg88cruq73",
-  password: "5er9zqmId8",
-  inbound: 4
-};
-
 // ================= STATE =================
 
-let cookie = "";
-const ticketMode = {};
-const replyMode = {};
-const pendingReceipts = {};
 let botEnabled = true;
+const pendingReceipts = {};
+const ticketMode = {};
 
-// ================= GLOBAL SAFETY =================
+// ================= PLANS =================
 
-process.on("unhandledRejection", (e) => {
-  console.log("UNHANDLED:", e);
-});
-
-process.on("uncaughtException", (e) => {
-  console.log("CRASH:", e);
-});
-
-// ================= LOGIN SAFE =================
-
-async function login() {
-  try {
-    const res = await axios.post(`${XUI.url}/panel/api/login`, {
-      username: XUI.username,
-      password: XUI.password
-    });
-
-    cookie = res.headers?.["set-cookie"]?.join("; ") || "";
-    return true;
-  } catch (e) {
-    console.log("LOGIN ERROR:", e.message);
-    return false;
+const plans = {
+  buy_50: {
+    title: "50GB یک ماهه",
+    price: "180,000",
+    subPool: "https://mirzaserver.sbs:2096/sub/3p2rk83x8h0lg2vu"
+  },
+  buy_100: {
+    title: "100GB یک ماهه",
+    price: "350,000",
+    subPool: "https://mirzaserver.sbs:2096/sub/b305cxdhf0tlqa86"
+  },
+  buy_200: {
+    title: "200GB یک ماهه",
+    price: "650,000",
+    subPool: "https://mirzaserver.sbs:2096/sub/02k7e52cjjtv2zhg"
   }
-}
-
-// ================= CREATE CLIENT =================
-
-async function createClient(email, gb, days = 30) {
-  const ok = await login();
-  if (!ok) throw new Error("XUI LOGIN FAILED");
-
-  const expiryTime = Date.now() + days * 86400000;
-
-  const res = await axios.post(
-    `${XUI.url}/panel/api/clients/add`,
-    {
-      client: {
-        email,
-        totalGB: gb * 1024 * 1024 * 1024,
-        expiryTime,
-        tgId: 0,
-        limitIp: 0,
-        enable: true
-      },
-      inboundIds: [XUI.inbound]
-    },
-    { headers: { Cookie: cookie } }
-  );
-
-  return {
-    success: true,
-    sub: `${XUI.url}/sub/${email}`
-  };
-}
+};
 
 // ================= KEYBOARD =================
 
-function mainKeyboard(userId) {
+function mainKeyboard() {
   return Keyboard.from([
     [
       { text: "🔐 خرید اشتراک" },
@@ -96,20 +46,11 @@ function mainKeyboard(userId) {
     [
       { text: "🎫 ارسال تیکت" }
     ],
-    ...(userId == config.adminId
+    ...(config.adminId
       ? [[{ text: "⚙️ مدیریت" }]]
       : [])
   ]).resized();
 }
-
-// ================= BOT CHECK =================
-
-bot.use(async (ctx, next) => {
-  if (!botEnabled && ctx.from?.id != config.adminId) {
-    return ctx.reply("🔴 ربات خاموش است");
-  }
-  await next();
-});
 
 // ================= START =================
 
@@ -123,17 +64,25 @@ bot.command("start", async (ctx) => {
   );
 
   await ctx.reply("👋 خوش آمدید", {
-    reply_markup: mainKeyboard(userId)
+    reply_markup: mainKeyboard()
   });
 });
 
-// ================= MESSAGE =================
+// ================= BOT OFF =================
+
+bot.use(async (ctx, next) => {
+  if (!botEnabled && ctx.from.id != config.adminId) {
+    return ctx.reply("🔴 ربات خاموش است");
+  }
+  await next();
+});
+
+// ================= TEXT =================
 
 bot.on("message:text", async (ctx) => {
   const text = ctx.message.text;
   const userId = ctx.from.id;
 
-  // BUY MENU
   if (text === "🔐 خرید اشتراک") {
     const kb = new InlineKeyboard()
       .text("50GB - 180K", "buy_50")
@@ -142,30 +91,22 @@ bot.on("message:text", async (ctx) => {
       .row()
       .text("200GB - 650K", "buy_200");
 
-    return ctx.reply("پلن رو انتخاب کن", { reply_markup: kb });
+    return ctx.reply("پلن را انتخاب کن", { reply_markup: kb });
   }
 
-  // SERVICES
   if (text === "🛍 سرویس‌های من") {
     const list = db.getPurchases(userId);
 
-    if (!list.length)
-      return ctx.reply("نداری سرویس");
+    if (!list.length) return ctx.reply("نداری سرویس");
 
     for (const s of list) {
-      await ctx.reply(s.config);
-
-      try {
-        const qr = await QRCode.toBuffer(s.config);
-        await ctx.replyWithPhoto({ source: qr });
-      } catch {}
+      await ctx.reply(`🔗 سرویس شما:\n${s.config}`);
     }
   }
 
-  // TICKET
   if (text === "🎫 ارسال تیکت") {
     ticketMode[userId] = true;
-    return ctx.reply("پیام بده");
+    return ctx.reply("پیام خود را ارسال کنید");
   }
 
   if (ticketMode[userId]) {
@@ -173,15 +114,10 @@ bot.on("message:text", async (ctx) => {
 
     await bot.api.sendMessage(
       config.adminId,
-      `📩 تیکت\n\n${userId}\n\n${text}`
+      `🎫 تیکت\n\n${userId}\n\n${text}`
     );
 
     return ctx.reply("ارسال شد");
-  }
-
-  // ADMIN PANEL
-  if (text === "⚙️ مدیریت" && userId == config.adminId) {
-    return ctx.reply("پنل فعال است");
   }
 });
 
@@ -191,25 +127,20 @@ bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
   const uid = ctx.from.id;
 
-  const plans = {
-    buy_50: { gb: 50, price: 180000 },
-    buy_100: { gb: 100, price: 350000 },
-    buy_200: { gb: 200, price: 650000 }
-  };
-
   // BUY
   if (plans[data]) {
     const p = plans[data];
 
     return ctx.reply(
-`💳 کارت:
-6221061206262828
+`💳 پرداخت کارت به کارت
 
-👤 محمدرضا میرزاآقایی
+💰 مبلغ: ${p.price}
 
-💰 ${p.price}
+👤 به نام: محمدرضا میرزاآقایی
 
-بعد پرداخت رسید بفرست`,
+📦 سرویس: ${p.title}
+
+⚠️ بعد از پرداخت رسید ارسال کنید`,
       {
         reply_markup: new InlineKeyboard()
           .text("📸 ارسال رسید", `receipt_${data}`)
@@ -219,35 +150,28 @@ bot.on("callback_query:data", async (ctx) => {
 
   // RECEIPT REQUEST
   if (data.startsWith("receipt_")) {
-    const type = data.replace("receipt_", "");
-    pendingReceipts[uid] = type;
+    const plan = data.replace("receipt_", "");
+    pendingReceipts[uid] = plan;
 
-    return ctx.reply("عکس رسید رو بفرست");
+    return ctx.reply("📸 عکس رسید را ارسال کنید");
   }
 
-  // APPROVE (ADMIN)
+  // ADMIN APPROVE
   if (data.startsWith("approve_") && uid == config.adminId) {
     const [, userId, planKey] = data.split("_");
 
     const plan = plans[planKey];
 
-    const email = `u${userId}_${Date.now()}`;
+    const link = plan.subPool;
 
-    try {
-      const result = await createClient(email, plan.gb);
+    db.addPurchase(userId, planKey, link);
 
-      db.addPurchase(userId, planKey, result.sub);
+    await bot.api.sendMessage(
+      userId,
+      `✅ پرداخت تایید شد\n\n🔗 لینک سرویس:\n${link}`
+    );
 
-      await bot.api.sendMessage(
-        userId,
-        `✅ فعال شد\n\n${result.sub}`
-      );
-
-      return ctx.reply("OK");
-    } catch (e) {
-      console.log(e);
-      return ctx.reply("ERROR");
-    }
+    return ctx.reply("OK");
   }
 });
 
@@ -258,29 +182,28 @@ bot.on("message:photo", async (ctx) => {
 
   if (!pendingReceipts[userId]) return;
 
-  const type = pendingReceipts[userId];
+  const plan = pendingReceipts[userId];
   delete pendingReceipts[userId];
 
   const photo = ctx.message.photo.pop();
 
   await bot.api.sendPhoto(config.adminId, photo.file_id, {
-    caption: `📩 رسید\n${userId}\n${type}`,
+    caption: `📩 رسید\n${userId}\n${plan}`,
     reply_markup: {
       inline_keyboard: [[
-        { text: "تایید", callback_data: `approve_${userId}_${type}` }
+        { text: "تایید", callback_data: `approve_${userId}_${plan}` }
       ]]
     }
   });
 
-  return ctx.reply("ارسال شد");
+  return ctx.reply("رسید ارسال شد");
 });
 
 // ================= SERVER =================
 
 app.get("/", (req, res) => res.send("OK"));
-
 app.listen(process.env.PORT || 3000);
 
 bot.start();
 
-console.log("BOT RUNNING");
+console.log("BOT RUNNING (STABLE MODE)");
